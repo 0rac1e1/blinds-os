@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.drawable.AdaptiveIconDrawable
@@ -83,7 +84,43 @@ object IconCache {
                 }
             }
         } else {
-            // older, non-adaptive icons get a soft plate so they sit nicely in the shape
+            drawLegacy(c, d, size)
+        }
+        return bmp.asImageBitmap()
+    }
+
+    /**
+     * Older, non-adaptive icons usually come with their own rounded corners and transparent margin.
+     * Find the visible artwork and scale it up to fill the whole shape (like iOS does) instead of
+     * floating it on a white plate. Tiny glyph-only icons still get a soft plate.
+     */
+    private fun drawLegacy(c: Canvas, d: Drawable, size: Int) {
+        val work = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, size, size)
+        d.draw(Canvas(work))
+
+        val px = IntArray(size * size)
+        work.getPixels(px, 0, size, 0, 0, size, size)
+        var minX = size
+        var minY = size
+        var maxX = -1
+        var maxY = -1
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                if ((px[y * size + x] ushr 24) > 40) {
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+        val w = maxX - minX + 1
+        val h = maxY - minY + 1
+        val coverage = if (maxX < 0) 0f else (w * h).toFloat() / (size * size)
+
+        if (maxX < 0 || coverage < 0.30f) {
+            // glyph-only icon: soft plate, glyph with a modest margin
             val p = Paint(Paint.ANTI_ALIAS_FLAG)
             p.shader = LinearGradient(
                 0f, 0f, 0f, size.toFloat(),
@@ -93,8 +130,44 @@ object IconCache {
             val inset = (size * 0.16f).roundToInt()
             d.setBounds(inset, inset, size - inset, size - inset)
             d.draw(c)
+            return
         }
-        return bmp.asImageBitmap()
+
+        // colour of the artwork's outer edge, used to fill any transparent corners after scaling
+        var r = 0L
+        var g = 0L
+        var b = 0L
+        var n = 0L
+        val ring = 3
+        for (y in minY..maxY) {
+            for (x in minX..maxX) {
+                val onEdge = x < minX + ring || x > maxX - ring || y < minY + ring || y > maxY - ring
+                if (!onEdge) continue
+                val v = px[y * size + x]
+                if ((v ushr 24) > 200) {
+                    r += (v shr 16) and 0xFF
+                    g += (v shr 8) and 0xFF
+                    b += v and 0xFF
+                    n++
+                }
+            }
+        }
+        if (n > 0) {
+            c.drawColor(
+                0xFF000000.toInt() or
+                    ((r / n).toInt() shl 16) or ((g / n).toInt() shl 8) or (b / n).toInt()
+            )
+        }
+
+        val side = maxOf(w, h).toFloat()
+        val scale = size / side
+        val cx = minX + w / 2f
+        val cy = minY + h / 2f
+        val m = Matrix()
+        m.postScale(scale, scale)
+        m.postTranslate(size / 2f - cx * scale, size / 2f - cy * scale)
+        val bp = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        c.drawBitmap(work, m, bp)
     }
 }
 

@@ -88,6 +88,7 @@ class UiState {
         editing = false
         showSettings = false
         showSearch = false
+        AboutState.show = false
         menuApp = null
         openCategory = null
         selectedId = null
@@ -247,6 +248,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
             ui.menuApp?.let { app -> AppMenu(app = app, model = model, ui = ui) }
             ui.openCategory?.let { cat -> CategorySheet(name = cat, model = model, ui = ui) }
             SettingsSheet(model = model, ui = ui)
+            BlindsAboutApp(model = model)
         }
     }
 }
@@ -280,6 +282,11 @@ private fun HomePage(
 }
 
 fun launchApp(ctx: Context, view: View, app: AppEntry, bounds: IntRect?) {
+    // the Blinds OS app lives inside the launcher itself
+    if (app.pkg == ctx.packageName) {
+        AboutState.show = true
+        return
+    }
     val intent = Intent(Intent.ACTION_MAIN)
         .addCategory(Intent.CATEGORY_LAUNCHER)
         .setComponent(app.component)

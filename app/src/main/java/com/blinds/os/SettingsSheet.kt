@@ -197,6 +197,10 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 }
 
                 Group("System") {
+                    ActionRow("About Blinds OS and patch notes") {
+                        ui.showSettings = false
+                        AboutState.show = true
+                    }
                     ActionRow("Set Blinds OS as the default home app") { openHomeSettings(ctx) }
                     if (s.hiddenIds.isNotEmpty()) {
                         ActionRow("Show ${s.hiddenIds.size} hidden app(s) again") { s.unhideAll() }
@@ -209,7 +213,7 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 }
 
                 Txt(
-                    "Blinds OS 0.1.0",
+                    "Blinds OS ${BlindsVersion.NAME}",
                     color = ink.copy(alpha = 0.45f),
                     size = 12.sp,
                     align = TextAlign.Center,

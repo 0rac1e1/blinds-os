@@ -12,8 +12,8 @@ android {
         applicationId = "com.blinds.os"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 4
+        versionName = "26.2"
     }
 
     // A fixed keystore is committed on purpose so every CI build is signed with the

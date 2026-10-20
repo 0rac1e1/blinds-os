@@ -98,6 +98,8 @@ class LauncherSettings(private val prefs: SharedPreferences) {
 
     // ---------- Layout data (not touched by "reset appearance") ----------
     var seeded by pref("seeded", false, resets = false)
+    var dockChecked by pref("dockChecked", false, resets = false)
+    var aboutPlaced by pref("aboutPlaced", false, resets = false)
     private var homeRaw by pref("home", "", resets = false)
     private var dockRaw by pref("dock", "", resets = false)
     private var hiddenRaw by pref("hidden", "", resets = false)
@@ -118,6 +120,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         dockRaw = ""
         hiddenRaw = ""
         seeded = false
+        aboutPlaced = false
     }
 
     // ---------- Arranging apps ----------
