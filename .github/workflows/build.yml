@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,3 +30,16 @@ jobs:
         with:
           name: BlindsOS-apk
           path: app/build/outputs/apk/release/*.apk
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          cp app/build/outputs/apk/release/*.apk "BlindsOS-$VER.apk"
+          gh release delete "v$VER" --yes --cleanup-tag || true
+          gh release create "v$VER" "BlindsOS-$VER.apk" \
+            --title "Blinds OS $VER" \
+            --notes "Blinds OS $VER. Download the APK and install it over your current version. Your settings are kept." \
+            --target "$GITHUB_SHA" \
+            --latest
