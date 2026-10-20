@@ -74,11 +74,11 @@ class LauncherSettings(private val prefs: SharedPreferences) {
 
     // ---------- Icon styles (liquid glass icons) ----------
     var iconStyle by pref("iconStyle", "default")           // default | glass | clear | tinted
-    var iconQuality by pref("iconQuality", "full")          // off | light | full
-    var iconFrost by pref("iconFrost", 0.22f)               // how milky the glass tile is
+    var iconQuality by pref("iconQuality", "light")         // off | light | full
+    var iconFrost by pref("iconFrost", 0.12f)               // how milky the glass tile is
     var iconShine by pref("iconShine", 0.8f)                // top sheen + specular highlight
     var iconEdge by pref("iconEdge", 0.8f)                  // rim light brightness and thickness
-    var iconTintAmt by pref("iconTintAmt", 0.55f)           // how much of the app's colour (or the accent) shows
+    var iconTintAmt by pref("iconTintAmt", 0.35f)           // how much of the app's colour (or the accent) shows
     var iconDarkGlass by pref("iconDarkGlass", false)       // dark glass instead of light glass
 
     // ---------- Layout ----------

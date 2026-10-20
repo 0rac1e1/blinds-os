@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -55,6 +56,7 @@ import kotlin.math.sin
 const val LAYER_FULL = 0   // the whole icon, as the app drew it
 const val LAYER_FG = 1     // just the foreground artwork of an adaptive icon
 const val LAYER_MONO = 2   // the Android 13 monochrome layer, in white
+const val LAYER_BG = 3     // just the background layer of an adaptive icon
 
 /** Renders an app's icon into a square bitmap so it can be re-masked into any icon shape. */
 object IconCache {
@@ -99,6 +101,13 @@ object IconCache {
             val lo = (-size * 0.25f).roundToInt()
             val hi = (size * 1.25f).roundToInt()
             d.foreground?.let {
+                it.setBounds(lo, lo, hi, hi)
+                it.draw(c)
+            }
+        } else if (d is AdaptiveIconDrawable && layer == LAYER_BG) {
+            val lo = (-size * 0.25f).roundToInt()
+            val hi = (size * 1.25f).roundToInt()
+            d.background?.let {
                 it.setBounds(lo, lo, hi, hi)
                 it.draw(c)
             }
@@ -237,6 +246,14 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
         val fgKey = "$key|fg"
         val monoKey = "$key|mono"
         val wantMono = style != "glass"
+        val bgKey = "$key|bg"
+        val bg by produceState<ImageBitmap?>(
+            initialValue = if (!wantMono) IconCache.peek(bgKey) else null,
+            key1 = bgKey,
+            key2 = wantMono,
+        ) {
+            value = if (!wantMono) IconCache.load(ctx, app, px, themed, accent, bgKey, LAYER_BG) else null
+        }
         val fg by produceState<ImageBitmap?>(initialValue = IconCache.peek(fgKey), key1 = fgKey) {
             value = IconCache.load(ctx, app, px, themed, accent, fgKey, LAYER_FG)
         }
@@ -252,6 +269,7 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
             modifier = modifier,
             style = style,
             full = bmp,
+            bg = bg,
             fg = fg,
             mono = mono,
         )
@@ -299,6 +317,7 @@ private fun GlassIcon(
     modifier: Modifier,
     style: String,
     full: ImageBitmap?,
+    bg: ImageBitmap?,
     fg: ImageBitmap?,
     mono: ImageBitmap?,
 ) {
@@ -308,7 +327,13 @@ private fun GlassIcon(
     val shape = iconShapeFor(s.iconShape)
     var pos by remember { mutableStateOf(Offset.Zero) }
 
-    val light = s.glassLight + (if (s.motionLight) (bd?.tilt?.x ?: 0f) * 28f else 0f)
+    // tilt shifts the light in coarse steps and is only read while drawing, so icons are not
+    // recomposed on every sensor update
+    val lightShift by remember {
+        derivedStateOf {
+            if (s.motionLight && bd != null) ((bd.tilt.x * 28f) / 6f).roundToInt() * 6 else 0
+        }
+    }
     val plate = when {
         style == "tinted" -> Color(s.accent)
         s.iconDarkGlass -> Color(0xFF12141A)
@@ -322,17 +347,20 @@ private fun GlassIcon(
     val edge = s.iconEdge
     val shine = s.iconShine
     val tintAmt = s.iconTintAmt
-    val useSlice = s.iconQuality == "full" && bd != null
+    // only a custom photo wallpaper needs a blurred slice behind the tile; the built-in animated
+    // wallpapers are already smooth, and redrawing them under every icon every frame is what lags
+    val useSlice = s.iconQuality == "full" && bd != null && s.useCustomWallpaper && bd.custom != null
     val darkGlass = dark || s.iconDarkGlass
     val gray = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) }
     val realFg = fg != null && fg.width > 1
+    val realBg = bg != null && bg.width > 1
     val realMono = mono != null && mono.width > 1
 
     Box(
         modifier
             .size(iconSize)
             .shadow((2f + 7f * s.glassDepth).dp, shape)
-            .onGloballyPositioned { pos = it.positionInRoot() }
+            .then(if (useSlice) Modifier.onGloballyPositioned { pos = it.positionInRoot() } else Modifier)
             .clip(shape)
             .drawBehind {
                 val sz = this.size
@@ -352,13 +380,12 @@ private fun GlassIcon(
 
                 // 3. the app's artwork
                 if (style == "glass") {
-                    if (full != null) {
-                        if (realFg && fg != null) {
-                            drawImage(full, dstSize = dst, alpha = tintAmt.coerceIn(0.05f, 1f))
-                            drawImage(fg, dstSize = dst)
-                        } else {
-                            drawImage(full, dstSize = dst, alpha = (0.45f + 0.5f * tintAmt).coerceIn(0f, 1f))
-                        }
+                    if (realBg && bg != null && realFg && fg != null) {
+                        // the coloured background is see-through glass tint, the logo stays solid
+                        drawImage(bg, dstSize = dst, alpha = tintAmt.coerceIn(0f, 1f))
+                        drawImage(fg, dstSize = dst)
+                    } else if (full != null) {
+                        drawImage(full, dstSize = dst, alpha = (0.25f + 0.55f * tintAmt).coerceIn(0f, 1f))
                     }
                 } else {
                     if (realMono && mono != null) {
@@ -380,7 +407,7 @@ private fun GlassIcon(
                 )
 
                 // 5. specular bloom on the side facing the light, lens-like brighter edge, rim light
-                val a = Math.toRadians(light.toDouble())
+                val a = Math.toRadians((s.glassLight + lightShift).toDouble())
                 val dx = cos(a).toFloat()
                 val dy = sin(a).toFloat()
                 val half = hypot(w, h) / 2f

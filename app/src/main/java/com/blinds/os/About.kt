@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "26.3"
+    const val NAME = "26.3.1"
 }
 
 class PatchNote(
@@ -83,6 +83,15 @@ val PATCH_NOTES = listOf(
             "Drag icons to move them",
             "Folders",
             "Notification badges on icons",
+        ),
+    ),
+    PatchNote(
+        version = "26.3.1",
+        title = "Glass icon fixes",
+        date = "October 2026",
+        items = listOf(
+            "Glass icons are now see-through: the coloured background becomes glass and only the logo stays solid",
+            "Glass icons are much lighter on the phone, so the home screen is smoother",
         ),
     ),
     PatchNote(

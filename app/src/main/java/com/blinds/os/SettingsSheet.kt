@@ -186,7 +186,7 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     if (s.iconStyle != "default") {
                         ChoiceRow(
                             "Glass quality",
-                            listOf("off" to "Off (flat)", "light" to "Light", "full" to "Full"),
+                            listOf("off" to "Off (flat)", "light" to "Light (fast)", "full" to "Full (photo blur, slower)"),
                             s.iconQuality,
                         ) { s.iconQuality = it }
                         SliderRow("Frost", pct(s.iconFrost), s.iconFrost, 0f..0.6f) { s.iconFrost = it }
