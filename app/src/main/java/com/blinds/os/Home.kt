@@ -9,15 +9,12 @@ import android.os.BatteryManager
 import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -224,11 +221,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                         }
                     }
 
-                    AnimatedVisibility(
-                        visible = ui.editing,
-                        enter = fadeIn() + slideInVertically { -it / 2 },
-                        exit = fadeOut(),
-                    ) {
+                    if (ui.editing) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
