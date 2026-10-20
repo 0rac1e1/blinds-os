@@ -48,6 +48,7 @@ class AppModel(private val ctx: Context, private val settings: LauncherSettings)
                 if (!settings.dockChecked && list.isNotEmpty()) repairDock(list)
             }
             if (!settings.aboutPlaced && list.isNotEmpty()) placeAbout(list)
+            if (list.isNotEmpty()) settings.migrateWidgets()
         }
     }
 

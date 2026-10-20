@@ -209,8 +209,6 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                         s.normalizeDock()
                     }
                     SliderRow("Corner radius", "${s.cornerRadius.roundToInt()}dp", s.cornerRadius, 12f..44f) { s.cornerRadius = it }
-                    SwitchRow("Clock widget", s.clockWidget) { s.clockWidget = it }
-                    ChoiceRow("Clock style", listOf("card" to "Glass card", "bare" to "No card"), s.clockStyle) { s.clockStyle = it }
                     SwitchRow("App Library page", s.appLibrary) { s.appLibrary = it }
                 }
 

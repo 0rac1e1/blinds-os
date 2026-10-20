@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "26.3.1"
+    const val NAME = "26.3.3"
 }
 
 class PatchNote(
@@ -80,9 +80,29 @@ val PATCH_NOTES = listOf(
         date = "Planned, not final",
         planned = true,
         items = listOf(
-            "Drag icons to move them",
-            "Folders",
-            "Notification badges on icons",
+            "Drag icons to move them (in 26.3.2)",
+            "Free home screen grid",
+            "Clock and weather widgets you can customize and drag",
+        ),
+    ),
+    PatchNote(
+        version = "26.3.3",
+        title = "Widgets begin",
+        date = "October 2026",
+        items = listOf(
+            "Widgets: tap + Widget while editing to add a clock (digital, analog or no card)",
+            "Widgets are items on the home screen: drag them like icons, use Size to switch small / wide / large",
+            "The old clock card is now a regular clock widget and can be removed or moved",
+            "Weather widget comes next",
+        ),
+    ),
+    PatchNote(
+        version = "26.3.2",
+        title = "Drag to move",
+        date = "October 2026",
+        items = listOf(
+            "In edit mode, press and hold an icon, then drag it to a new spot, another page or the dock",
+            "Hold a dragged icon at the screen edge to flip pages",
         ),
     ),
     PatchNote(

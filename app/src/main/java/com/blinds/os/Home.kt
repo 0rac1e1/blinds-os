@@ -16,10 +16,19 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -84,7 +93,22 @@ class UiState {
     var selectedId by mutableStateOf<String?>(null)
     var homeSignal by mutableIntStateOf(0)
 
+    // drag and drop of icons while editing
+    var showWidgetPicker by mutableStateOf(false)
+    var firstIdOnPage: String? = null
+    var dragId by mutableStateOf<String?>(null)
+    var dragX by mutableStateOf(0f)
+    var dragY by mutableStateOf(0f)
+    var edgeDir by mutableIntStateOf(0)
+    val cells = HashMap<String, CellInfo>()
+    var dockRect: Rect? = null
+
+    fun cellAt(p: Offset): String? =
+        cells.entries.firstOrNull { it.value.rect.contains(p) }?.key
+
     fun closeAll() {
+        dragId = null
+        showWidgetPicker = false
         editing = false
         showSettings = false
         showSearch = false
@@ -95,18 +119,45 @@ class UiState {
     }
 }
 
+class CellInfo(val token: Any, val rect: Rect)
+
 private val LocalJiggle = compositionLocalOf<State<Float>?> { null }
 
-private fun paginate(ids: List<String>, first: Int, rest: Int): List<List<String>> {
-    if (ids.isEmpty()) return listOf(emptyList())
-    val out = mutableListOf<List<String>>()
-    out += ids.take(first)
-    var i = first
-    while (i < ids.size) {
-        out += ids.subList(i, minOf(i + rest, ids.size))
-        i += rest
+class Placed(val id: String, val col: Int, val row: Int, val w: Int, val h: Int)
+
+/** Flows items onto pages in order; widgets take several cells. Small items fill gaps beside widgets. */
+private fun layoutPages(ids: List<String>, spanOf: (String) -> Pair<Int, Int>, cols: Int, rows: Int): List<List<Placed>> {
+    val pages = mutableListOf<MutableList<Placed>>()
+    var occ = Array(rows) { BooleanArray(cols) }
+    var cur = mutableListOf<Placed>()
+    pages += cur
+    for (id in ids) {
+        val (w0, h0) = spanOf(id)
+        val w = w0.coerceIn(1, cols)
+        val h = h0.coerceIn(1, rows)
+        var placed = false
+        while (!placed) {
+            loop@ for (r in 0..rows - h) {
+                for (c in 0..cols - w) {
+                    var free = true
+                    for (rr in r until r + h) for (cc in c until c + w) if (occ[rr][cc]) free = false
+                    if (free) {
+                        for (rr in r until r + h) for (cc in c until c + w) occ[rr][cc] = true
+                        cur += Placed(id, c, r, w, h)
+                        placed = true
+                        break@loop
+                    }
+                }
+            }
+            if (!placed) {
+                if (cur.isEmpty()) break
+                occ = Array(rows) { BooleanArray(cols) }
+                cur = mutableListOf()
+                pages += cur
+            }
+        }
     }
-    return out
+    return pages
 }
 
 @Composable
@@ -118,15 +169,56 @@ fun HomeScreen(model: AppModel, ui: UiState) {
     val hidden = s.hiddenIds.toSet()
     val byId = remember(model.apps) { model.apps.associateBy { it.id } }
     val dockIds = s.dockIds.filter { it in byId && it !in hidden }.take(s.dockCount)
-    val homeIds = s.homeIds.filter { it in byId && it !in hidden && it !in dockIds }
+    val specs = s.widgets.associateBy { it.id }
+    val homeIds = s.homeIds.filter { (it in byId || it in specs) && it !in hidden && it !in dockIds }
 
-    val firstRows = (s.rows - (if (s.clockWidget) 2 else 0)).coerceAtLeast(1)
-    val cap0 = s.cols * firstRows
-    val cap = s.cols * s.rows
-    val pages = remember(homeIds, cap0, cap) { paginate(homeIds, cap0, cap) }
+    val cols = s.cols
+    val rowsN = s.rows
+    val placedPages = remember(homeIds, specs, cols, rowsN) {
+        layoutPages(homeIds, { id -> specs[id]?.span(cols) ?: (1 to 1) }, cols, rowsN)
+    }
+    val pages = remember(placedPages) { placedPages.map { pg -> pg.map { it.id } } }
     val libraryIndex = if (s.appLibrary) pages.size else -1
     val pageCount = pages.size + (if (s.appLibrary) 1 else 0)
     val pager = rememberPagerState(pageCount = { pageCount })
+
+    // ---- drag and drop ----
+    val pagesNow by rememberUpdatedState(pages)
+    val boxOrigin = remember { floatArrayOf(0f, 0f) }
+    val boxSize = remember { floatArrayOf(0f, 0f) }
+
+    fun reorderAt(p: Offset, id: String, last: String?): String? {
+        val hit = ui.cellAt(p)
+        if (hit == id) return null
+        if (hit != null) {
+            if (hit == last) return last
+            s.dropOnto(id, hit, hit in s.dockIds)
+            return hit
+        }
+        val dr = ui.dockRect
+        if (dr != null && dr.contains(p)) {
+            if (id !in s.dockIds && s.dockIds.size < s.dockCount) s.dropOnto(id, null, true)
+            return null
+        }
+        val inPager = p.y >= boxOrigin[1] && p.y <= boxOrigin[1] + boxSize[1]
+        val page = pager.currentPage
+        if (inPager && page < pagesNow.size) {
+            val lastOnPage = pagesNow[page].lastOrNull()
+            if (lastOnPage != id) s.dropOnto(id, lastOnPage, false, after = true)
+        }
+        return null
+    }
+
+    // holding a dragged icon at the screen edge flips to the next page
+    LaunchedEffect(ui.dragId != null, ui.edgeDir) {
+        if (ui.dragId != null && ui.edgeDir != 0) {
+            while (true) {
+                delay(600)
+                val t = pager.currentPage + ui.edgeDir
+                if (t in 0 until pagesNow.size) pager.animateScrollToPage(t) else break
+            }
+        }
+    }
 
     // the launcher never closes on Back; it steps back out of edit mode / to the first page instead
     BackHandler(enabled = true) {
@@ -163,6 +255,58 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                     Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .onGloballyPositioned { c ->
+                            val p = c.positionInWindow()
+                            boxOrigin[0] = p.x
+                            boxOrigin[1] = p.y
+                            boxSize[0] = c.size.width.toFloat()
+                            boxSize[1] = c.size.height.toFloat()
+                        }
+                        .pointerInput(ui.editing) {
+                            if (!ui.editing) return@pointerInput
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                val start = Offset(down.position.x + boxOrigin[0], down.position.y + boxOrigin[1])
+                                val grabbed = ui.cellAt(start) ?: return@awaitEachGesture
+                                var cancelled = false
+                                withTimeoutOrNull(250L) {
+                                    while (!cancelled) {
+                                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                        val ch = ev.changes.firstOrNull { it.id == down.id }
+                                        if (ch == null || !ch.pressed ||
+                                            (ch.position - down.position).getDistance() > viewConfiguration.touchSlop
+                                        ) cancelled = true
+                                    }
+                                }
+                                if (cancelled) return@awaitEachGesture
+                                if (s.haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                ui.dragId = grabbed
+                                ui.dragX = start.x
+                                ui.dragY = start.y
+                                var lastTarget: String? = null
+                                val edge = 36.dp.toPx()
+                                try {
+                                    while (true) {
+                                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                        ch.consume()
+                                        if (!ch.pressed) break
+                                        val p = Offset(ch.position.x + boxOrigin[0], ch.position.y + boxOrigin[1])
+                                        ui.dragX = p.x
+                                        ui.dragY = p.y
+                                        ui.edgeDir = when {
+                                            ch.position.x < edge -> -1
+                                            ch.position.x > size.width - edge -> 1
+                                            else -> 0
+                                        }
+                                        lastTarget = reorderAt(p, grabbed, lastTarget)
+                                    }
+                                } finally {
+                                    ui.dragId = null
+                                    ui.edgeDir = 0
+                                }
+                            }
+                        }
                         .pointerInput(s.swipeSearch, s.appLibrary, libraryIndex, pageCount) {
                             var total = 0f
                             detectVerticalDragGestures(
@@ -212,8 +356,8 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 LibraryPage(model = model, ui = ui)
                             } else {
                                 HomePage(
-                                    ids = pages.getOrElse(page) { emptyList() },
-                                    first = page == 0,
+                                    items = placedPages.getOrElse(page) { emptyList() },
+                                    specs = specs,
                                     byId = byId,
                                     model = model,
                                     ui = ui,
@@ -232,6 +376,10 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 ui.selectedId = null
                                 ui.showSettings = true
                             })
+                            GlassButton("+ Widget", onClick = {
+                                ui.firstIdOnPage = pages.getOrNull(pager.currentPage)?.firstOrNull()
+                                ui.showWidgetPicker = true
+                            })
                             GlassButton("Done", onClick = {
                                 ui.editing = false
                                 ui.selectedId = null
@@ -244,6 +392,26 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                 Dock(dockIds = dockIds, byId = byId, model = model, ui = ui)
             }
 
+            ui.dragId?.let { did ->
+                byId[did]?.let { app ->
+                    AppIcon(
+                        app = app,
+                        size = s.iconSize.dp,
+                        modifier = Modifier
+                            .offset {
+                                val half = (s.iconSize.dp.roundToPx()) / 2
+                                IntOffset(ui.dragX.roundToInt() - half, ui.dragY.roundToInt() - half)
+                            }
+                            .graphicsLayer {
+                                scaleX = 1.2f
+                                scaleY = 1.2f
+                                alpha = 0.92f
+                            },
+                    )
+                }
+            }
+
+            WidgetPicker(ui)
             if (ui.showSearch) Spotlight(model = model, ui = ui)
             ui.menuApp?.let { app -> AppMenu(app = app, model = model, ui = ui) }
             ui.openCategory?.let { cat -> CategorySheet(name = cat, model = model, ui = ui) }
@@ -255,26 +423,29 @@ fun HomeScreen(model: AppModel, ui: UiState) {
 
 @Composable
 private fun HomePage(
-    ids: List<String>,
-    first: Boolean,
+    items: List<Placed>,
+    specs: Map<String, WidgetSpec>,
     byId: Map<String, AppEntry>,
     model: AppModel,
     ui: UiState,
 ) {
     val s = LocalSettings.current
-    val showClock = first && s.clockWidget
-    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-        if (showClock) {
-            ClockWidget(Modifier.weight(2f).fillMaxWidth().padding(vertical = 6.dp))
-        }
-        val rowCount = if (showClock) (s.rows - 2).coerceAtLeast(1) else s.rows
-        for (r in 0 until rowCount) {
-            Row(Modifier.weight(1f).fillMaxWidth()) {
-                for (c in 0 until s.cols) {
-                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                        val app = ids.getOrNull(r * s.cols + c)?.let { byId[it] }
-                        if (app != null) AppCell(app = app, model = model, ui = ui, labels = s.showLabels)
-                    }
+    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+        val cellW = maxWidth / s.cols
+        val cellH = maxHeight / s.rows
+        for (it in items) {
+            val spec = specs[it.id]
+            val app = byId[it.id]
+            Box(
+                Modifier
+                    .offset(x = cellW * it.col, y = cellH * it.row)
+                    .size(cellW * it.w, cellH * it.h),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (spec != null) {
+                    WidgetItem(spec = spec, ui = ui, modifier = Modifier.fillMaxSize())
+                } else if (app != null) {
+                    AppCell(app = app, model = model, ui = ui, labels = s.showLabels, movable = true)
                 }
             }
         }
@@ -308,6 +479,7 @@ fun AppCell(
     ui: UiState,
     labels: Boolean,
     modifier: Modifier = Modifier,
+    movable: Boolean = false,
 ) {
     val s = LocalSettings.current
     val ink = LocalInk.current
@@ -316,6 +488,12 @@ fun AppCell(
     val haptic = LocalHapticFeedback.current
     val jiggle = LocalJiggle.current
     var bounds by remember { mutableStateOf<IntRect?>(null) }
+    val token = remember { Any() }
+    if (movable) {
+        DisposableEffect(app.id) {
+            onDispose { if (ui.cells[app.id]?.token === token) ui.cells.remove(app.id) }
+        }
+    }
 
     val editing = ui.editing
     val selected = ui.selectedId == app.id
@@ -331,8 +509,12 @@ fun AppCell(
                     (p.x + c.size.width).roundToInt(),
                     (p.y + c.size.height).roundToInt(),
                 )
+                if (movable) {
+                    ui.cells[app.id] = CellInfo(token, Rect(p.x, p.y, p.x + c.size.width, p.y + c.size.height))
+                }
             }
             .graphicsLayer {
+                alpha = if (ui.dragId == app.id) 0f else 1f
                 rotationZ = if (editing) (jiggle?.value ?: 0f) * flip else 0f
                 val sc = if (selected) 1.14f else 1f
                 scaleX = sc
@@ -340,19 +522,8 @@ fun AppCell(
             }
             .bouncy(
                 onClick = {
-                    if (editing) {
-                        val sel = ui.selectedId
-                        when {
-                            sel == null -> ui.selectedId = app.id
-                            sel == app.id -> ui.selectedId = null
-                            else -> {
-                                s.swap(sel, app.id)
-                                ui.selectedId = null
-                            }
-                        }
-                    } else {
-                        launchApp(ctx, view, app, bounds)
-                    }
+                    // while editing, icons are moved by dragging them, not tapped
+                    if (!editing) launchApp(ctx, view, app, bounds)
                 },
                 onLongClick = {
                     if (!editing) {
@@ -420,7 +591,13 @@ private fun Dock(dockIds: List<String>, byId: Map<String, AppEntry>, model: AppM
     val s = LocalSettings.current
     val ink = LocalInk.current
     GlassSurface(
-        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
+            .onGloballyPositioned { c ->
+                val p = c.positionInWindow()
+                ui.dockRect = Rect(p.x, p.y, p.x + c.size.width, p.y + c.size.height)
+            },
         shape = RoundedCornerShape((s.cornerRadius + 6f).dp),
         strength = 1.1f,
     ) {
@@ -430,56 +607,10 @@ private fun Dock(dockIds: List<String>, byId: Map<String, AppEntry>, model: AppM
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val apps = dockIds.mapNotNull { byId[it] }
-            apps.forEach { app -> AppCell(app = app, model = model, ui = ui, labels = false) }
+            apps.forEach { app -> AppCell(app = app, model = model, ui = ui, labels = false, movable = true) }
             if (apps.isEmpty()) {
                 Txt("Long-press an app and choose Add to Dock", color = ink.copy(alpha = 0.6f), size = 13.sp)
             }
         }
-    }
-}
-
-@Composable
-fun ClockWidget(modifier: Modifier = Modifier) {
-    val s = LocalSettings.current
-    val ink = LocalInk.current
-    val ctx = LocalContext.current
-    val now by produceState(initialValue = System.currentTimeMillis()) {
-        while (true) {
-            value = System.currentTimeMillis()
-            delay(10_000)
-        }
-    }
-    val minute = now / 60_000L
-    val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
-    val timeText = remember(minute, is24) {
-        SimpleDateFormat(if (is24) "H:mm" else "h:mm", Locale.getDefault()).format(Date(now))
-    }
-    val dateText = remember(minute) { SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now)) }
-    val battery = remember(minute) {
-        try {
-            (ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager)
-                .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        } catch (e: Exception) {
-            -1
-        }
-    }
-
-    val body: @Composable () -> Unit = {
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = 22.dp),
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Txt(dateText.uppercase(), color = ink.copy(alpha = 0.75f), size = 13.sp, weight = FontWeight.SemiBold, spacing = 1.2.sp, shadow = s.clockStyle == "bare")
-            Txt(timeText, color = ink, size = 66.sp, weight = FontWeight.Light, shadow = s.clockStyle == "bare")
-            if (battery >= 0) {
-                Txt("Battery $battery%", color = ink.copy(alpha = 0.65f), size = 13.sp, shadow = s.clockStyle == "bare")
-            }
-        }
-    }
-
-    if (s.clockStyle == "card") {
-        GlassSurface(modifier.fillMaxSize(), strength = 1f) { body() }
-    } else {
-        Box(modifier.fillMaxSize()) { body() }
     }
 }

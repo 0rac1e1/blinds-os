@@ -109,6 +109,8 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var seeded by pref("seeded", false, resets = false)
     var dockChecked by pref("dockChecked", false, resets = false)
     var aboutPlaced by pref("aboutPlaced", false, resets = false)
+    var widgetsMigrated by pref("widgetsMigrated", false, resets = false)
+    private var widgetsRaw by pref("widgets", "", resets = false)
     private var homeRaw by pref("home", "", resets = false)
     private var dockRaw by pref("dock", "", resets = false)
     private var hiddenRaw by pref("hidden", "", resets = false)
@@ -116,6 +118,40 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     val homeIds: List<String> get() = homeRaw.unpack()
     val dockIds: List<String> get() = dockRaw.unpack()
     val hiddenIds: List<String> get() = hiddenRaw.unpack()
+
+    val widgets: List<WidgetSpec> get() = widgetsRaw.unpack().mapNotNull { WidgetSpec.parse(it) }
+
+    fun widget(id: String): WidgetSpec? = widgets.firstOrNull { it.id == id }
+
+    private fun saveWidgets(list: List<WidgetSpec>) { widgetsRaw = list.joinToString("\n") { it.pack() } }
+
+    /** Adds a widget to the home screen, before [before] (or first if null). */
+    fun addWidget(type: String, size: String, style: String, before: String?) {
+        val id = "w:$type:${System.currentTimeMillis()}"
+        saveWidgets(widgets + WidgetSpec(id, type, size, style))
+        val home = homeIds.toMutableList()
+        val at = if (before != null) home.indexOf(before).let { if (it < 0) 0 else it } else 0
+        home.add(at, id)
+        setHome(home)
+    }
+
+    fun updateWidget(spec: WidgetSpec) {
+        saveWidgets(widgets.map { if (it.id == spec.id) spec else it })
+    }
+
+    fun removeWidget(id: String) {
+        saveWidgets(widgets.filter { it.id != id })
+        setHome(homeIds - id)
+    }
+
+    /** One time (26.3.2 -> 26.4): the old clock card becomes the first clock widget. */
+    fun migrateWidgets() {
+        if (widgetsMigrated) return
+        widgetsMigrated = true
+        if (clockWidget && widgets.none { it.type == "clock" }) {
+            addWidget("clock", "wide", if (clockStyle == "bare") "bare" else "digital", null)
+        }
+    }
 
     fun setHome(list: List<String>) { homeRaw = list.pack() }
     fun setDock(list: List<String>) { dockRaw = list.pack() }
@@ -130,6 +166,8 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         hiddenRaw = ""
         seeded = false
         aboutPlaced = false
+        widgetsRaw = ""
+        widgetsMigrated = false
     }
 
     // ---------- Arranging apps ----------
@@ -200,6 +238,54 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         setDock(dock)
     }
 
+    /**
+     * Drag and drop. Puts [id] into the slot of [target] (or at the end when [target] is null),
+     * in the dock or on the home pages. If the dock overflows, its extra app goes back home.
+     */
+    fun dropOnto(id: String, target: String?, intoDock: Boolean, after: Boolean = false) {
+        val home = homeIds.toMutableList()
+        val dock = dockIds.toMutableList()
+        val fromDock = id in dock
+        val slot = if (fromDock) -1 else home.indexOf(id)
+        val dest = if (intoDock) dock else home
+        val fi = dest.indexOf(id)
+        val ti = if (target != null) dest.indexOf(target) else -1
+        home.remove(id)
+        dock.remove(id)
+        val at = when {
+            ti < 0 -> dest.size
+            after -> if (fi in 0 until ti) ti else ti + 1
+            else -> ti
+        }.coerceIn(0, dest.size)
+        dest.add(at, id)
+        if (dock.size > dockCount) {
+            val extra = dock.lastOrNull { it != id } ?: dock.first()
+            dock.remove(extra)
+            home.add(if (slot in 0..home.size) slot else home.size, extra)
+        }
+        setHome(home)
+        setDock(dock)
+    }
+
     private fun String.unpack(): List<String> = if (isEmpty()) emptyList() else split('\n')
     private fun List<String>.pack(): String = joinToString("\n")
+}
+
+/** A widget on the home screen. size: s (2x2), w (4x2), l (4x4). */
+data class WidgetSpec(val id: String, val type: String, val size: String, val style: String) {
+    fun pack() = "$id|$type|$size|$style"
+
+    /** Cells wide and tall. */
+    fun span(cols: Int): Pair<Int, Int> = when (size) {
+        "s" -> 2.coerceAtMost(cols) to 2
+        "l" -> cols to 4
+        else -> cols to 2
+    }
+
+    companion object {
+        fun parse(line: String): WidgetSpec? {
+            val p = line.split('|')
+            return if (p.size >= 4) WidgetSpec(p[0], p[1], p[2], p[3]) else null
+        }
+    }
 }
