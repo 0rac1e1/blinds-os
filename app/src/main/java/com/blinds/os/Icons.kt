@@ -17,40 +17,70 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.ColorUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sin
+
+const val LAYER_FULL = 0   // the whole icon, as the app drew it
+const val LAYER_FG = 1     // just the foreground artwork of an adaptive icon
+const val LAYER_MONO = 2   // the Android 13 monochrome layer, in white
 
 /** Renders an app's icon into a square bitmap so it can be re-masked into any icon shape. */
 object IconCache {
-    private val cache = LruCache<String, ImageBitmap>(220)
+    private val cache = LruCache<String, ImageBitmap>(480)
 
     fun peek(key: String): ImageBitmap? = cache.get(key)
 
-    suspend fun load(ctx: Context, app: AppEntry, px: Int, themed: Boolean, accent: Int, key: String): ImageBitmap {
+    suspend fun load(
+        ctx: Context,
+        app: AppEntry,
+        px: Int,
+        themed: Boolean,
+        accent: Int,
+        key: String,
+        layer: Int = LAYER_FULL,
+    ): ImageBitmap {
         cache.get(key)?.let { return it }
-        val bmp = withContext(Dispatchers.Default) { render(ctx, app, px, themed, accent) }
+        val bmp = withContext(Dispatchers.Default) { render(ctx, app, px, themed, accent, layer) }
         cache.put(key, bmp)
         return bmp
     }
 
-    private fun render(ctx: Context, app: AppEntry, size: Int, themed: Boolean, accent: Int): ImageBitmap {
+    /** Stand-in (1x1) for "this icon has no such layer". */
+    private fun noLayer(): ImageBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).asImageBitmap()
+
+    private fun render(ctx: Context, app: AppEntry, size: Int, themed: Boolean, accent: Int, layer: Int): ImageBitmap {
         val pm = ctx.packageManager
         val raw: Drawable = try {
             pm.getActivityIcon(app.component)
@@ -60,10 +90,27 @@ object IconCache {
         // work on our own copy so changing bounds never affects the system's cached drawable
         val d: Drawable = raw.constantState?.newDrawable(ctx.resources)?.mutate() ?: raw
 
+        if (layer != LAYER_FULL && d !is AdaptiveIconDrawable) return noLayer()
+
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
 
-        if (d is AdaptiveIconDrawable) {
+        if (d is AdaptiveIconDrawable && layer == LAYER_FG) {
+            val lo = (-size * 0.25f).roundToInt()
+            val hi = (size * 1.25f).roundToInt()
+            d.foreground?.let {
+                it.setBounds(lo, lo, hi, hi)
+                it.draw(c)
+            }
+        } else if (d is AdaptiveIconDrawable && layer == LAYER_MONO) {
+            val mono = if (Build.VERSION.SDK_INT >= 33) d.monochrome else null
+            if (mono == null) return noLayer()
+            val lo = (-size * 0.25f).roundToInt()
+            val hi = (size * 1.25f).roundToInt()
+            mono.setTint(0xFFFFFFFF.toInt())
+            mono.setBounds(lo, lo, hi, hi)
+            mono.draw(c)
+        } else if (d is AdaptiveIconDrawable) {
             // adaptive layers are 108dp but only the middle 72dp is meant to be seen: zoom in to that
             val lo = (-size * 0.25f).roundToInt()
             val hi = (size * 1.25f).roundToInt()
@@ -178,10 +225,37 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
     val px = with(LocalDensity.current) { size.roundToPx() }
     val themed = s.themedIcons
     val accent = s.accent
+    val style = if (s.iconQuality == "off") "default" else s.iconStyle
     val key = "${app.id}|$px|$themed|$accent"
+    val glassStyle = style != "default"
 
     val bmp by produceState<ImageBitmap?>(initialValue = IconCache.peek(key), key1 = key) {
         value = IconCache.load(ctx, app, px, themed, accent, key)
+    }
+
+    if (glassStyle) {
+        val fgKey = "$key|fg"
+        val monoKey = "$key|mono"
+        val wantMono = style != "glass"
+        val fg by produceState<ImageBitmap?>(initialValue = IconCache.peek(fgKey), key1 = fgKey) {
+            value = IconCache.load(ctx, app, px, themed, accent, fgKey, LAYER_FG)
+        }
+        val mono by produceState<ImageBitmap?>(
+            initialValue = if (wantMono) IconCache.peek(monoKey) else null,
+            key1 = monoKey,
+            key2 = wantMono,
+        ) {
+            value = if (wantMono) IconCache.load(ctx, app, px, themed, accent, monoKey, LAYER_MONO) else null
+        }
+        GlassIcon(
+            iconSize = size,
+            modifier = modifier,
+            style = style,
+            full = bmp,
+            fg = fg,
+            mono = mono,
+        )
+        return
     }
 
     val shape = iconShapeFor(s.iconShape)
@@ -212,4 +286,133 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
             Image(bitmap = it, contentDescription = app.label, modifier = Modifier.fillMaxSize())
         }
     }
+}
+
+/**
+ * Liquid glass app icons (Glass / Clear / Tinted).
+ * The icon is a translucent glass tile over the wallpaper with a bright curved edge, a specular
+ * highlight that follows the light angle, and the app's artwork floating on top.
+ */
+@Composable
+private fun GlassIcon(
+    iconSize: Dp,
+    modifier: Modifier,
+    style: String,
+    full: ImageBitmap?,
+    fg: ImageBitmap?,
+    mono: ImageBitmap?,
+) {
+    val s = LocalSettings.current
+    val bd = LocalBackdrop.current
+    val dark = LocalDark.current
+    val shape = iconShapeFor(s.iconShape)
+    var pos by remember { mutableStateOf(Offset.Zero) }
+
+    val light = s.glassLight + (if (s.motionLight) (bd?.tilt?.x ?: 0f) * 28f else 0f)
+    val plate = when {
+        style == "tinted" -> Color(s.accent)
+        s.iconDarkGlass -> Color(0xFF12141A)
+        else -> Color.White
+    }
+    val frost = when (style) {
+        "clear" -> s.iconFrost * 0.55f
+        "tinted" -> s.iconTintAmt * 0.6f + s.iconFrost * 0.3f
+        else -> s.iconFrost
+    }
+    val edge = s.iconEdge
+    val shine = s.iconShine
+    val tintAmt = s.iconTintAmt
+    val useSlice = s.iconQuality == "full" && bd != null
+    val darkGlass = dark || s.iconDarkGlass
+    val gray = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) }
+    val realFg = fg != null && fg.width > 1
+    val realMono = mono != null && mono.width > 1
+
+    Box(
+        modifier
+            .size(iconSize)
+            .shadow((2f + 7f * s.glassDepth).dp, shape)
+            .onGloballyPositioned { pos = it.positionInRoot() }
+            .clip(shape)
+            .drawBehind {
+                val sz = this.size
+                val w = sz.width
+                val h = sz.height
+                val dst = IntSize(w.roundToInt(), h.roundToInt())
+
+                // 1. a soft slice of the wallpaper behind the tile (frosted look on photo wallpapers)
+                if (useSlice && bd != null) {
+                    translate(left = -pos.x, top = -pos.y) {
+                        drawWallpaper(bd, s, dark, soft = true)
+                    }
+                }
+
+                // 2. glass body
+                drawRect(plate.copy(alpha = frost.coerceIn(0f, 0.9f)))
+
+                // 3. the app's artwork
+                if (style == "glass") {
+                    if (full != null) {
+                        if (realFg && fg != null) {
+                            drawImage(full, dstSize = dst, alpha = tintAmt.coerceIn(0.05f, 1f))
+                            drawImage(fg, dstSize = dst)
+                        } else {
+                            drawImage(full, dstSize = dst, alpha = (0.45f + 0.5f * tintAmt).coerceIn(0f, 1f))
+                        }
+                    }
+                } else {
+                    if (realMono && mono != null) {
+                        drawImage(mono, dstSize = dst, alpha = 0.96f)
+                    } else if (realFg && fg != null) {
+                        drawImage(fg, dstSize = dst, alpha = 0.92f, colorFilter = gray)
+                    } else if (full != null) {
+                        drawImage(full, dstSize = dst, alpha = 0.6f, colorFilter = gray)
+                    }
+                }
+
+                // 4. glass thickness: bright top, darker bottom
+                drawRect(
+                    Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.26f * shine),
+                        0.5f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = if (darkGlass) 0.16f else 0.06f),
+                    )
+                )
+
+                // 5. specular bloom on the side facing the light, lens-like brighter edge, rim light
+                val a = Math.toRadians(light.toDouble())
+                val dx = cos(a).toFloat()
+                val dy = sin(a).toFloat()
+                val half = hypot(w, h) / 2f
+                val c = Offset(w / 2f, h / 2f)
+                drawRect(
+                    Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.34f * shine), Color.Transparent),
+                        center = Offset(c.x + dx * half * 0.6f, c.y + dy * half * 0.6f),
+                        radius = max(w, h) * 0.8f,
+                    )
+                )
+                drawRect(
+                    Brush.radialGradient(
+                        0f to Color.Transparent,
+                        0.68f to Color.Transparent,
+                        1f to Color.White.copy(alpha = 0.16f * edge),
+                        center = c,
+                        radius = half,
+                    )
+                )
+                drawOutline(
+                    outline = shape.createOutline(sz, layoutDirection, this),
+                    brush = Brush.linearGradient(
+                        0f to Color.White.copy(alpha = 0.95f * edge),
+                        0.3f to Color.White.copy(alpha = 0.14f * edge),
+                        0.7f to Color.White.copy(alpha = 0.14f * edge),
+                        1f to Color.White.copy(alpha = 0.6f * edge),
+                        start = Offset(c.x + dx * half, c.y + dy * half),
+                        end = Offset(c.x - dx * half, c.y - dy * half),
+                    ),
+                    style = Stroke(width = (0.7f + 1.7f * edge).dp.toPx()),
+                )
+            }
+    )
 }

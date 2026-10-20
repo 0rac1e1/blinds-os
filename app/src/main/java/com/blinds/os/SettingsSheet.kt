@@ -2,10 +2,13 @@
 
 package com.blinds.os
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -112,6 +115,28 @@ private fun SheetBody(model: AppModel, ui: UiState) {
         }
     }
 
+    val backupSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { Backup.export(ctx, uri) }
+                Toast.makeText(ctx, if (ok) "Backup saved" else "Couldn't save the backup", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val backupOpener = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { Backup.restore(ctx, uri) }
+                if (ok) {
+                    Toast.makeText(ctx, "Backup restored", Toast.LENGTH_SHORT).show()
+                    ctx.findActivity()?.recreate()
+                } else {
+                    Toast.makeText(ctx, "That isn't a Blinds OS backup", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     GlassSurface(
         modifier = Modifier.fillMaxWidth().fillMaxHeight(0.68f).swallowTaps(),
         shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
@@ -153,7 +178,25 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                         s.iconShape,
                     ) { s.iconShape = it }
                     SliderRow("Size", "${s.iconSize.roundToInt()}dp", s.iconSize, 44f..76f) { s.iconSize = it }
-                    SwitchRow("Glossy shine", s.iconGlass) { s.iconGlass = it }
+                    ChoiceRow(
+                        "Style",
+                        listOf("default" to "Default", "glass" to "Glass", "clear" to "Clear", "tinted" to "Tinted"),
+                        s.iconStyle,
+                    ) { s.iconStyle = it }
+                    if (s.iconStyle != "default") {
+                        ChoiceRow(
+                            "Glass quality",
+                            listOf("off" to "Off (flat)", "light" to "Light", "full" to "Full"),
+                            s.iconQuality,
+                        ) { s.iconQuality = it }
+                        SliderRow("Frost", pct(s.iconFrost), s.iconFrost, 0f..0.6f) { s.iconFrost = it }
+                        SliderRow("Shine", pct(s.iconShine), s.iconShine, 0f..1f) { s.iconShine = it }
+                        SliderRow("Edge", pct(s.iconEdge), s.iconEdge, 0f..1f) { s.iconEdge = it }
+                        SliderRow("Tint amount", pct(s.iconTintAmt), s.iconTintAmt, 0f..1f) { s.iconTintAmt = it }
+                        SwitchRow("Dark glass", s.iconDarkGlass) { s.iconDarkGlass = it }
+                    } else {
+                        SwitchRow("Glossy shine", s.iconGlass) { s.iconGlass = it }
+                    }
                     SwitchRow("Themed icons (Android 13+)", s.themedIcons) { s.themedIcons = it }
                     SwitchRow("Show app names", s.showLabels) { s.showLabels = it }
                 }
@@ -202,6 +245,8 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                         AboutState.show = true
                     }
                     ActionRow("Set Blinds OS as the default home app") { openHomeSettings(ctx) }
+                    ActionRow("Back up layout and settings…") { backupSaver.launch("blinds-os-backup.json") }
+                    ActionRow("Restore from a backup…") { backupOpener.launch(arrayOf("*/*")) }
                     if (s.hiddenIds.isNotEmpty()) {
                         ActionRow("Show ${s.hiddenIds.size} hidden app(s) again") { s.unhideAll() }
                     }
@@ -226,6 +271,15 @@ private fun SheetBody(model: AppModel, ui: UiState) {
 }
 
 private fun pct(v: Float) = "${(v * 100).roundToInt()}%"
+
+private fun Context.findActivity(): Activity? {
+    var c: Context = this
+    while (c is ContextWrapper) {
+        if (c is Activity) return c
+        c = c.baseContext
+    }
+    return null
+}
 
 private fun openHomeSettings(ctx: Context) {
     val tries = listOf(

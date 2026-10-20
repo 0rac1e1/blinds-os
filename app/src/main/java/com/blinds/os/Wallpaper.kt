@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.IntOffset
@@ -69,8 +70,36 @@ class Backdrop {
     var custom by mutableStateOf<ImageBitmap?>(null)
 }
 
-/** Paints the wallpaper into the current DrawScope. [screen] is always the full screen size. */
-fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean) {
+/**
+ * A tiny, heavily downscaled copy of the custom wallpaper photo. Drawing it stretched up gives a cheap,
+ * smooth "blurred" look, so many glass tiles (icons) can share it instead of each running a real blur.
+ */
+object SoftWallpaper {
+    private var source: ImageBitmap? = null
+    private var soft: ImageBitmap? = null
+
+    fun of(src: ImageBitmap): ImageBitmap {
+        val cached = soft
+        if (cached != null && source === src) return cached
+        var cur: Bitmap = src.asAndroidBitmap()
+        val targetW = (cur.width / 24).coerceAtLeast(8)
+        while (cur.width > targetW * 2) {
+            cur = Bitmap.createScaledBitmap(cur, cur.width / 2, cur.height / 2, true)
+        }
+        val ratio = cur.height.toFloat() / cur.width.toFloat()
+        val out = Bitmap.createScaledBitmap(cur, targetW, (targetW * ratio).roundToInt().coerceAtLeast(2), true)
+        val img = out.asImageBitmap()
+        source = src
+        soft = img
+        return img
+    }
+}
+
+/**
+ * Paints the wallpaper into the current DrawScope. [screen] is always the full screen size.
+ * With [soft] set, a custom photo is drawn from its pre-blurred copy.
+ */
+fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean, soft: Boolean = false) {
     val screen = bd.size
     if (screen.width <= 0f || screen.height <= 0f) return
     val par = s.parallax * 36f
@@ -82,10 +111,11 @@ fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean) {
         val scale = max(screen.width / custom.width, screen.height / custom.height) * 1.1f
         val dw = custom.width * scale
         val dh = custom.height * scale
+        val img = if (soft) SoftWallpaper.of(custom) else custom
         drawImage(
-            image = custom,
+            image = img,
             srcOffset = IntOffset.Zero,
-            srcSize = IntSize(custom.width, custom.height),
+            srcSize = IntSize(img.width, img.height),
             dstOffset = IntOffset(((screen.width - dw) / 2f + ox).roundToInt(), ((screen.height - dh) / 2f + oy).roundToInt()),
             dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
         )

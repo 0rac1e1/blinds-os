@@ -65,6 +65,17 @@ class PatchNote(
 
 val PATCH_NOTES = listOf(
     PatchNote(
+        version = "26.3",
+        title = "Icon styles and backup",
+        date = "In progress",
+        planned = true,
+        items = listOf(
+            "Liquid glass icons: Glass, Clear and Tinted styles with frost, shine, edge and tint sliders (Customize > Icons > Style)",
+            "Back up and restore your layout and settings to a file (Customize > System)",
+            "Coming next: drag to move icons, folders",
+        ),
+    ),
+    PatchNote(
         version = "27.0",
         title = "First release of 2027",
         date = "Planned, not final",

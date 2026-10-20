@@ -72,6 +72,15 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var themedIcons by pref("themedIcons", false)           // Android 13+ monochrome icons in accent colour
     var showLabels by pref("showLabels", true)
 
+    // ---------- Icon styles (liquid glass icons) ----------
+    var iconStyle by pref("iconStyle", "default")           // default | glass | clear | tinted
+    var iconQuality by pref("iconQuality", "full")          // off | light | full
+    var iconFrost by pref("iconFrost", 0.22f)               // how milky the glass tile is
+    var iconShine by pref("iconShine", 0.8f)                // top sheen + specular highlight
+    var iconEdge by pref("iconEdge", 0.8f)                  // rim light brightness and thickness
+    var iconTintAmt by pref("iconTintAmt", 0.55f)           // how much of the app's colour (or the accent) shows
+    var iconDarkGlass by pref("iconDarkGlass", false)       // dark glass instead of light glass
+
     // ---------- Layout ----------
     var cols by pref("cols", 4)
     var rows by pref("rows", 6)
