@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "26.2"
+    const val NAME = "26.3"
 }
 
 class PatchNote(
@@ -65,26 +65,33 @@ class PatchNote(
 
 val PATCH_NOTES = listOf(
     PatchNote(
-        version = "26.3",
-        title = "Icon styles and backup",
-        date = "In progress",
-        planned = true,
-        items = listOf(
-            "Liquid glass icons: Glass, Clear and Tinted styles with frost, shine, edge and tint sliders (Customize > Icons > Style)",
-            "Back up and restore your layout and settings to a file (Customize > System)",
-            "Coming next: drag to move icons, folders",
-        ),
-    ),
-    PatchNote(
         version = "27.0",
         title = "First release of 2027",
         date = "Planned, not final",
         planned = true,
         items = listOf(
-            "Drag icons to move them around",
             "Real Android widgets",
-            "Notification badges on icons",
             "Icon packs",
+        ),
+    ),
+    PatchNote(
+        version = "26.4",
+        title = "Move icons around",
+        date = "Planned, not final",
+        planned = true,
+        items = listOf(
+            "Drag icons to move them",
+            "Folders",
+            "Notification badges on icons",
+        ),
+    ),
+    PatchNote(
+        version = "26.3",
+        title = "Glass icons and backup",
+        date = "October 2026",
+        items = listOf(
+            "Liquid glass icons: Glass, Clear and Tinted styles with frost, shine, edge and tint sliders (Customize > Icons > Style)",
+            "Back up and restore your layout and settings to a file (Customize > System)",
         ),
     ),
     PatchNote(
