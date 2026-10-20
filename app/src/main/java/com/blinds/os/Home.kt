@@ -95,6 +95,9 @@ class UiState {
 
     // drag and drop of icons while editing
     var showWidgetPicker by mutableStateOf(false)
+    var editWidgetId by mutableStateOf<String?>(null)
+    var showCity by mutableStateOf(false)
+    var addWeatherAfterCity = false
     var firstIdOnPage: String? = null
     var dragId by mutableStateOf<String?>(null)
     var dragX by mutableStateOf(0f)
@@ -109,6 +112,8 @@ class UiState {
     fun closeAll() {
         dragId = null
         showWidgetPicker = false
+        editWidgetId = null
+        showCity = false
         editing = false
         showSettings = false
         showSearch = false
@@ -412,6 +417,8 @@ fun HomeScreen(model: AppModel, ui: UiState) {
             }
 
             WidgetPicker(ui)
+            WidgetEditor(ui)
+            CityPicker(ui)
             if (ui.showSearch) Spotlight(model = model, ui = ui)
             ui.menuApp?.let { app -> AppMenu(app = app, model = model, ui = ui) }
             ui.openCategory?.let { cat -> CategorySheet(name = cat, model = model, ui = ui) }

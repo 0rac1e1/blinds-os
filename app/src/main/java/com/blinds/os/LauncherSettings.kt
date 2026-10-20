@@ -109,6 +109,13 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var seeded by pref("seeded", false, resets = false)
     var dockChecked by pref("dockChecked", false, resets = false)
     var aboutPlaced by pref("aboutPlaced", false, resets = false)
+    var weatherName by pref("weatherName", "", resets = false)
+    var weatherLat by pref("weatherLat", "", resets = false)
+    var weatherLon by pref("weatherLon", "", resets = false)
+    var weatherUnit by pref("weatherUnit", "f", resets = false)       // f | c
+    var weatherJson by pref("weatherJson", "", resets = false)
+    var weatherKey by pref("weatherKey", "", resets = false)
+    var weatherTime by pref("weatherTime", "", resets = false)
     var widgetsMigrated by pref("widgetsMigrated", false, resets = false)
     private var widgetsRaw by pref("widgets", "", resets = false)
     private var homeRaw by pref("home", "", resets = false)
@@ -271,9 +278,21 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     private fun List<String>.pack(): String = joinToString("\n")
 }
 
-/** A widget on the home screen. size: s (2x2), w (4x2), l (4x4). */
-data class WidgetSpec(val id: String, val type: String, val size: String, val style: String) {
-    fun pack() = "$id|$type|$size|$style"
+/**
+ * A widget on the home screen. size: s (2x2), w (4x2), l (4x4).
+ * frost, tint, corner and text are per-widget looks; -1 / 0 mean "use the global look".
+ */
+data class WidgetSpec(
+    val id: String,
+    val type: String,
+    val size: String,
+    val style: String,
+    val frost: Float = -1f,
+    val tint: Int = 0,
+    val corner: Float = -1f,
+    val text: Int = 0,
+) {
+    fun pack() = "$id|$type|$size|$style|$frost|$tint|$corner|$text"
 
     /** Cells wide and tall. */
     fun span(cols: Int): Pair<Int, Int> = when (size) {
@@ -285,7 +304,14 @@ data class WidgetSpec(val id: String, val type: String, val size: String, val st
     companion object {
         fun parse(line: String): WidgetSpec? {
             val p = line.split('|')
-            return if (p.size >= 4) WidgetSpec(p[0], p[1], p[2], p[3]) else null
+            if (p.size < 4) return null
+            return WidgetSpec(
+                p[0], p[1], p[2], p[3],
+                p.getOrNull(4)?.toFloatOrNull() ?: -1f,
+                p.getOrNull(5)?.toIntOrNull() ?: 0,
+                p.getOrNull(6)?.toFloatOrNull() ?: -1f,
+                p.getOrNull(7)?.toIntOrNull() ?: 0,
+            )
         }
     }
 }

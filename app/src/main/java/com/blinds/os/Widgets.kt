@@ -14,7 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -42,6 +47,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** Registers a home-screen item's on-screen box so dragging can find it. */
@@ -63,19 +69,16 @@ private fun nextSize(size: String) = when (size) {
     else -> "s"
 }
 
-private fun nextClockStyle(style: String) = when (style) {
-    "digital" -> "analog"
-    "analog" -> "bare"
-    else -> "digital"
-}
+private val WIDGET_TINTS = listOf(
+    0, 0xFFFFFFFF.toInt(), 0xFFCFE8FF.toInt(), 0xFFFFD1E0.toInt(), 0xFFFFE0A6.toInt(),
+    0xFFC8F5E1.toInt(), 0xFFDCCBFF.toInt(), 0xFF1B1B22.toInt(),
+)
+private val WIDGET_TEXTS = listOf(
+    0, 0xFFFFFFFF.toInt(), 0xFF0F1115.toInt(), 0xFF0A84FF.toInt(), 0xFFFFD60A.toInt(),
+    0xFFFF453A.toInt(), 0xFF30D158.toInt(), 0xFFBF5AF2.toInt(),
+)
 
-private fun styleName(style: String) = when (style) {
-    "analog" -> "Analog"
-    "bare" -> "No card"
-    else -> "Digital"
-}
-
-/** A widget on the home screen: its content, plus the edit-mode controls (remove, size, style). */
+/** A widget on the home screen: its content, plus the edit-mode controls (remove, size, edit). */
 @Composable
 fun WidgetItem(spec: WidgetSpec, ui: UiState, modifier: Modifier = Modifier) {
     val s = LocalSettings.current
@@ -86,9 +89,12 @@ fun WidgetItem(spec: WidgetSpec, ui: UiState, modifier: Modifier = Modifier) {
             .padding(5.dp)
             .graphicsLayer { alpha = if (ui.dragId == spec.id) 0.35f else 1f },
     ) {
-        when (spec.type) {
-            "clock" -> ClockWidget(spec)
-            else -> Box(Modifier.fillMaxSize())
+        WidgetFrame(spec) {
+            when (spec.type) {
+                "clock" -> ClockBody(spec)
+                "weather" -> WeatherBody(spec, ui)
+                else -> Box(Modifier.fillMaxSize())
+            }
         }
         if (editing) {
             Chip("−", Alignment.TopStart) { s.removeWidget(spec.id) }
@@ -97,10 +103,29 @@ fun WidgetItem(spec: WidgetSpec, ui: UiState, modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 PillButton("Size") { s.updateWidget(spec.copy(size = nextSize(spec.size))) }
-                PillButton(styleName(spec.style)) {
-                    s.updateWidget(spec.copy(style = nextClockStyle(spec.style)))
-                }
+                PillButton("Edit") { ui.editWidgetId = spec.id }
             }
+        }
+    }
+}
+
+/** The glass card (or nothing, for "No card") a widget sits in, with the widget's own look applied. */
+@Composable
+fun WidgetFrame(spec: WidgetSpec, content: @Composable () -> Unit) {
+    val s = LocalSettings.current
+    val ink = if (spec.text != 0) Color(spec.text) else LocalInk.current
+    CompositionLocalProvider(LocalInk provides ink) {
+        if (spec.style == "bare") {
+            Box(Modifier.fillMaxSize()) { content() }
+        } else {
+            val shape = RoundedCornerShape((if (spec.corner >= 0f) spec.corner else s.cornerRadius).dp)
+            GlassSurface(
+                Modifier.fillMaxSize(),
+                shape = shape,
+                strength = 1f,
+                tint = if (spec.tint != 0) Color(spec.tint) else null,
+                tintAlpha = if (spec.frost >= 0f) spec.frost else null,
+            ) { content() }
         }
     }
 }
@@ -140,8 +165,7 @@ private fun PillButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun ClockWidget(spec: WidgetSpec) {
-    val s = LocalSettings.current
+fun ClockBody(spec: WidgetSpec) {
     val ink = LocalInk.current
     val ctx = LocalContext.current
     val now by produceState(initialValue = System.currentTimeMillis()) {
@@ -156,42 +180,34 @@ fun ClockWidget(spec: WidgetSpec) {
     val small = spec.size == "s"
     val large = spec.size == "l"
 
-    val body: @Composable () -> Unit = {
-        if (spec.style == "analog") {
-            AnalogFace(now, ink, small)
-        } else {
-            val timeText = remember(minute, is24) {
-                SimpleDateFormat(if (is24) "H:mm" else "h:mm", Locale.getDefault()).format(Date(now))
-            }
-            val dateText = remember(minute, small) {
-                SimpleDateFormat(if (small) "EEE, MMM d" else "EEEE, MMMM d", Locale.getDefault()).format(Date(now))
-            }
-            val battery = remember(minute) {
-                try {
-                    (ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager)
-                        .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                } catch (e: Exception) {
-                    -1
-                }
-            }
-            Column(
-                Modifier.fillMaxSize().padding(horizontal = if (small) 14.dp else 22.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = if (small) Alignment.CenterHorizontally else Alignment.Start,
-            ) {
-                Txt(dateText.uppercase(), color = ink.copy(alpha = 0.75f), size = if (small) 11.sp else 13.sp, weight = FontWeight.SemiBold, spacing = 1.2.sp, shadow = bare, maxLines = 1)
-                Txt(timeText, color = ink, size = if (small) 40.sp else if (large) 96.sp else 66.sp, weight = FontWeight.Light, shadow = bare)
-                if (battery >= 0 && !small) {
-                    Txt("Battery $battery%", color = ink.copy(alpha = 0.65f), size = 13.sp, shadow = bare)
-                }
+    if (spec.style == "analog") {
+        AnalogFace(now, ink, small)
+    } else {
+        val timeText = remember(minute, is24) {
+            SimpleDateFormat(if (is24) "H:mm" else "h:mm", Locale.getDefault()).format(Date(now))
+        }
+        val dateText = remember(minute, small) {
+            SimpleDateFormat(if (small) "EEE, MMM d" else "EEEE, MMMM d", Locale.getDefault()).format(Date(now))
+        }
+        val battery = remember(minute) {
+            try {
+                (ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager)
+                    .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            } catch (e: Exception) {
+                -1
             }
         }
-    }
-
-    if (bare) {
-        Box(Modifier.fillMaxSize()) { body() }
-    } else {
-        GlassSurface(Modifier.fillMaxSize(), strength = 1f) { body() }
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = if (small) 14.dp else 22.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = if (small) Alignment.CenterHorizontally else Alignment.Start,
+        ) {
+            Txt(dateText.uppercase(), color = ink.copy(alpha = 0.75f), size = if (small) 11.sp else 13.sp, weight = FontWeight.SemiBold, spacing = 1.2.sp, shadow = bare, maxLines = 1)
+            Txt(timeText, color = ink, size = if (small) 40.sp else if (large) 96.sp else 66.sp, weight = FontWeight.Light, shadow = bare)
+            if (battery >= 0 && !small) {
+                Txt("Battery $battery%", color = ink.copy(alpha = 0.65f), size = 13.sp, shadow = bare)
+            }
+        }
     }
 }
 
@@ -232,22 +248,90 @@ fun WidgetPicker(ui: UiState) {
         Modifier
             .fillMaxSize()
             .drawBehind { drawRect(Color(0x66000000)) }
-            .swallowTaps()
             .bouncy(onClick = { ui.showWidgetPicker = false }),
         contentAlignment = Alignment.Center,
     ) {
         GlassSurface(Modifier.fillMaxWidth().padding(24.dp).swallowTaps(), strength = 1.2f) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Txt("Add a widget", color = ink, size = 20.sp, weight = FontWeight.SemiBold)
-                Txt("It is added to this page. Drag it where you want, and use Size and style while editing.", color = ink.copy(alpha = 0.7f), size = 13.sp)
+                Txt("It is added to this page. Drag it where you want, then use Size and Edit while editing.", color = ink.copy(alpha = 0.7f), size = 13.sp)
                 val add: (String, String, String) -> Unit = { type, size, style ->
                     s.addWidget(type, size, style, ui.firstIdOnPage)
                     ui.showWidgetPicker = false
                 }
+                GlassButton("Weather", onClick = {
+                    ui.showWidgetPicker = false
+                    if (s.weatherLat.isEmpty()) {
+                        ui.addWeatherAfterCity = true
+                        ui.showCity = true
+                    } else {
+                        s.addWidget("weather", "wide", "card", ui.firstIdOnPage)
+                    }
+                })
                 GlassButton("Digital clock", onClick = { add("clock", "wide", "digital") })
                 GlassButton("Analog clock", onClick = { add("clock", "s", "analog") })
                 GlassButton("Clock without card", onClick = { add("clock", "wide", "bare") })
                 GlassButton("Cancel", onClick = { ui.showWidgetPicker = false })
+            }
+        }
+    }
+}
+
+/** Per-widget customising: size, style, frost, tint, corners and text colour. */
+@Composable
+fun WidgetEditor(ui: UiState) {
+    val id = ui.editWidgetId ?: return
+    val s = LocalSettings.current
+    val spec = s.widget(id)
+    if (spec == null) {
+        ui.editWidgetId = null
+        return
+    }
+    val ink = LocalInk.current
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        GlassSurface(
+            Modifier.fillMaxWidth().padding(12.dp).swallowTaps(),
+            shape = RoundedCornerShape(30.dp),
+            strength = 1.3f,
+        ) {
+            Column(
+                Modifier.padding(horizontal = 20.dp, vertical = 16.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Txt(if (spec.type == "weather") "Weather widget" else "Clock widget", color = ink, size = 19.sp, weight = FontWeight.SemiBold)
+                    GlassButton("Done", onClick = { ui.editWidgetId = null }, accent = true)
+                }
+                ChoiceRow("Size", listOf("s" to "Small", "w" to "Wide", "l" to "Large"), spec.size) {
+                    s.updateWidget(spec.copy(size = it))
+                }
+                if (spec.type == "clock") {
+                    ChoiceRow("Style", listOf("digital" to "Digital", "analog" to "Analog", "bare" to "No card"), spec.style) {
+                        s.updateWidget(spec.copy(style = it))
+                    }
+                } else {
+                    ChoiceRow("Style", listOf("card" to "Glass card", "bare" to "No card"), if (spec.style == "bare") "bare" else "card") {
+                        s.updateWidget(spec.copy(style = it))
+                    }
+                }
+                if (spec.style != "bare") {
+                    SliderRow("Frost", "${((if (spec.frost >= 0f) spec.frost else s.glassTint) * 100).roundToInt()}%", if (spec.frost >= 0f) spec.frost else s.glassTint, 0f..0.7f) {
+                        s.updateWidget(spec.copy(frost = it))
+                    }
+                    SwatchRow("Tint (first = default)", WIDGET_TINTS, spec.tint) { s.updateWidget(spec.copy(tint = it)) }
+                    SliderRow("Corner roundness", "${(if (spec.corner >= 0f) spec.corner else s.cornerRadius).roundToInt()}dp", if (spec.corner >= 0f) spec.corner else s.cornerRadius, 0f..44f) {
+                        s.updateWidget(spec.copy(corner = it))
+                    }
+                }
+                SwatchRow("Text colour (first = default)", WIDGET_TEXTS, spec.text) { s.updateWidget(spec.copy(text = it)) }
+                if (spec.type == "weather") {
+                    ActionRow("Change city or units…") {
+                        ui.addWeatherAfterCity = false
+                        ui.showCity = true
+                    }
+                }
+                ActionRow("Reset this widget's look") {
+                    s.updateWidget(spec.copy(frost = -1f, tint = 0, corner = -1f, text = 0))
+                }
             }
         }
     }

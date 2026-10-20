@@ -300,7 +300,7 @@ private fun openHomeSettings(ctx: Context) {
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun Group(title: String, content: @Composable ColumnScope.() -> Unit) {
+fun Group(title: String, content: @Composable ColumnScope.() -> Unit) {
     val ink = LocalInk.current
     Txt(
         title.uppercase(),
@@ -321,7 +321,7 @@ private fun Group(title: String, content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun SliderRow(
+fun SliderRow(
     label: String,
     valueText: String,
     value: Float,
@@ -339,7 +339,7 @@ private fun SliderRow(
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 54.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -351,7 +351,7 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 }
 
 @Composable
-private fun ChoiceRow(
+fun ChoiceRow(
     label: String,
     options: List<Pair<String, String>>,
     selected: String,
@@ -381,7 +381,7 @@ private fun ChoiceRow(
 }
 
 @Composable
-private fun SwatchRow(label: String, colors: List<Int>, selected: Int, onSelect: (Int) -> Unit) {
+fun SwatchRow(label: String, colors: List<Int>, selected: Int, onSelect: (Int) -> Unit) {
     val ink = LocalInk.current
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
         Txt(label, size = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
@@ -434,7 +434,7 @@ private fun MiniButton(text: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ActionRow(label: String, destructive: Boolean = false, onClick: () -> Unit) {
+fun ActionRow(label: String, destructive: Boolean = false, onClick: () -> Unit) {
     Txt(
         label,
         size = 16.sp,

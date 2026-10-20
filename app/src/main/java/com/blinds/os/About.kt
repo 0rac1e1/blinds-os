@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "26.3.3"
+    const val NAME = "26.4"
 }
 
 class PatchNote(
@@ -75,14 +75,25 @@ val PATCH_NOTES = listOf(
         ),
     ),
     PatchNote(
-        version = "26.4",
-        title = "Move icons around",
+        version = "26.5",
+        title = "Folders and notifications",
         date = "Planned, not final",
         planned = true,
         items = listOf(
-            "Drag icons to move them (in 26.3.2)",
-            "Free home screen grid",
-            "Clock and weather widgets you can customize and drag",
+            "Folders",
+            "Notification badges on icons",
+            "More wallpapers and more live wallpapers",
+        ),
+    ),
+    PatchNote(
+        version = "26.4",
+        title = "Widgets and moving things",
+        date = "October 2026",
+        items = listOf(
+            "Weather widget: now, next hours and 5 days, with icons, a city search and F / C (data by Open-Meteo.com)",
+            "Customize each widget: size, style, frost, tint, corner roundness and text colour (+ Widget, then Edit)",
+            "Clock widgets: digital, analog or no card, small / wide / large",
+            "Drag icons and widgets to move them between spots, pages and the dock",
         ),
     ),
     PatchNote(
@@ -396,6 +407,7 @@ fun BlindsAboutApp(model: AppModel) {
                 GlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(26.dp), strength = 1f) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp)) {
                         InfoRow("Blinds OS", BlindsVersion.NAME)
+                        InfoRow("Weather data", "Open-Meteo.com")
                         InfoRow("Device", "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}")
                         InfoRow("Android", "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                         InfoRow("Apps", model.apps.size.toString())
