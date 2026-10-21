@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "26.4"
+    const val NAME = "26.4.3"
 }
 
 class PatchNote(
@@ -83,6 +83,37 @@ val PATCH_NOTES = listOf(
             "Folders",
             "Notification badges on icons",
             "More wallpapers and more live wallpapers",
+        ),
+    ),
+    PatchNote(
+        version = "26.4.3",
+        title = "Folders",
+        date = "October 2026",
+        items = listOf(
+            "Folders: in edit mode, drag an app and hold it over the middle of another app (or a folder) until it grows, then let go",
+            "Tap a folder to open it: rename it at the top, tap an app to open it, press and hold an app to take it out",
+            "Folders can be moved and dragged between pages like icons; the - badge or Remove folder puts the apps back",
+            "Dragging now waits a moment over an icon before swapping places, so it is calmer",
+        ),
+    ),
+    PatchNote(
+        version = "26.4.2",
+        title = "Wallpapers",
+        date = "October 2026",
+        items = listOf(
+            "9 new wallpapers: Time of day (follows your clock), Sunset, Midnight, Peach, Mint, Lavender, Rose Gold, Slate, Neon, plus a Surprise me button",
+            "Live effects over any wallpaper: Aurora curtains, Night sky with shooting stars, Rain, Snow, Waves, Lava lamp, Fireflies",
+            "Drift speed, animation frame rate (15 / 30 / 60) and pause in battery saver",
+        ),
+    ),
+    PatchNote(
+        version = "26.4.1",
+        title = "Faster start",
+        date = "October 2026",
+        items = listOf(
+            "Home screen appears right away: the app list is remembered between launches",
+            "Dock and first-page icons are prepared in the background before they are drawn",
+            "Startup profile included, so the launcher code is pre-compiled on your phone and opens faster (the speed-up grows after the first launch or two)",
         ),
     ),
     PatchNote(

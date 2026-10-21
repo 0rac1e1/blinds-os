@@ -12,8 +12,8 @@ android {
         applicationId = "com.blinds.os"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "26.4"
+        versionCode = 13
+        versionName = "26.4.3"
     }
 
     // A fixed keystore is committed on purpose so every CI build is signed with the
@@ -61,4 +61,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 }

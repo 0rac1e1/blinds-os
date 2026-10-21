@@ -96,6 +96,10 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var wallpaperVersion by pref("wallpaperVersion", 0)
     var animatedWallpaper by pref("animatedWallpaper", true)
     var parallax by pref("parallax", 0.6f)
+    var wallpaperLive by pref("wallpaperLive", "none")       // none | curtains | stars | rain | snow | waves | lava | fireflies
+    var wallpaperFps by pref("wallpaperFps", 30)             // 15 | 30 | 60
+    var wallpaperSpeed by pref("wallpaperSpeed", 1f)         // drift speed multiplier
+    var pauseSaver by pref("pauseSaver", true)               // pause the animation in battery saver
 
     // ---------- Theme ----------
     var theme by pref("theme", "system")                    // system | dark | light
@@ -116,6 +120,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var weatherJson by pref("weatherJson", "", resets = false)
     var weatherKey by pref("weatherKey", "", resets = false)
     var weatherTime by pref("weatherTime", "", resets = false)
+    private var foldersRaw by pref("folders", "", resets = false)
     var widgetsMigrated by pref("widgetsMigrated", false, resets = false)
     private var widgetsRaw by pref("widgets", "", resets = false)
     private var homeRaw by pref("home", "", resets = false)
@@ -160,6 +165,82 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         }
     }
 
+    val folders: List<FolderSpec> get() = foldersRaw.unpack().mapNotNull { FolderSpec.parse(it) }
+
+    fun folder(id: String): FolderSpec? = folders.firstOrNull { it.id == id }
+
+    val folderMembers: Set<String> get() = folders.flatMap { it.members }.toSet()
+
+    private fun saveFolders(list: List<FolderSpec>) { foldersRaw = list.joinToString("\n") { it.pack() } }
+
+    /** A folder with fewer than two apps goes away; a lone app takes its place on the home screen. */
+    private fun cleanFolders() {
+        val all = folders
+        val broken = all.filter { it.members.size < 2 }
+        if (broken.isEmpty()) return
+        val home = homeIds.toMutableList()
+        for (f in broken) {
+            val at = home.indexOf(f.id)
+            if (at >= 0) {
+                home.removeAt(at)
+                f.members.forEachIndexed { i, m -> if (m !in home) home.add(at + i, m) }
+            }
+        }
+        saveFolders(all.filter { it.members.size >= 2 })
+        setHome(home)
+    }
+
+    private fun pullFromFolders(id: String) {
+        if (folders.any { id in it.members }) {
+            saveFolders(folders.map { it.copy(members = it.members - id) })
+            cleanFolders()
+        }
+    }
+
+    /** Dropping [dragged] on the middle of [target] makes a folder of the two (or adds it to the folder). */
+    fun mergeIntoFolder(dragged: String, target: String) {
+        if (dragged.startsWith("w:") || dragged.startsWith("f:") || target.startsWith("w:") || dragged == target) return
+        val home = homeIds.toMutableList()
+        val dock = dockIds.toMutableList()
+        if (target !in home) return
+        home.remove(dragged)
+        dock.remove(dragged)
+        val idx = home.indexOf(target)
+        if (target.startsWith("f:")) {
+            saveFolders(folders.map { if (it.id == target && dragged !in it.members) it.copy(members = it.members + dragged) else it })
+        } else {
+            val fid = "f:${System.currentTimeMillis()}"
+            saveFolders(folders + FolderSpec(fid, "Folder", listOf(target, dragged)))
+            home[idx] = fid
+        }
+        setHome(home)
+        setDock(dock)
+    }
+
+    fun renameFolder(id: String, name: String) {
+        val clean = name.replace('|', ' ').replace(';', ' ').replace('\n', ' ').take(24)
+        saveFolders(folders.map { if (it.id == id) it.copy(name = clean) else it })
+    }
+
+    fun takeOutOfFolder(folderId: String, appId: String) {
+        val home = homeIds.toMutableList()
+        val at = home.indexOf(folderId)
+        if (appId !in home) home.add(if (at >= 0) at + 1 else home.size, appId)
+        setHome(home)
+        saveFolders(folders.map { if (it.id == folderId) it.copy(members = it.members - appId) else it })
+        cleanFolders()
+    }
+
+    fun dissolveFolder(id: String) {
+        val f = folder(id) ?: return
+        val home = homeIds.toMutableList()
+        val at = home.indexOf(id).let { if (it < 0) home.size else it }
+        home.remove(id)
+        f.members.forEachIndexed { i, m -> if (m !in home) home.add((at + i).coerceAtMost(home.size), m) }
+        setHome(home)
+        saveFolders(folders.filter { it.id != id })
+    }
+
     fun setHome(list: List<String>) { homeRaw = list.pack() }
     fun setDock(list: List<String>) { dockRaw = list.pack() }
 
@@ -174,28 +255,32 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         seeded = false
         aboutPlaced = false
         widgetsRaw = ""
+        foldersRaw = ""
         widgetsMigrated = false
     }
 
     // ---------- Arranging apps ----------
 
     fun appendNew(ids: List<String>) {
-        val have = homeIds.toSet() + dockIds.toSet()
+        val have = homeIds.toSet() + dockIds.toSet() + folderMembers
         val add = ids.filter { it !in have }
         if (add.isNotEmpty()) setHome(homeIds + add)
     }
 
     fun addToHome(id: String) {
+        pullFromFolders(id)
         removeFromDock(id, toHome = false)
         if (id !in homeIds) setHome(homeIds + id)
     }
 
     fun removeFromHome(id: String) {
+        pullFromFolders(id)
         setHome(homeIds - id)
         setDock(dockIds - id)
     }
 
     fun addToDock(id: String) {
+        pullFromFolders(id)
         val dock = dockIds.toMutableList()
         val home = homeIds.toMutableList()
         home.remove(id)
@@ -228,7 +313,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     fun unhideAll() {
         val back = hiddenIds
         hiddenRaw = ""
-        setHome(homeIds + back.filter { it !in homeIds && it !in dockIds })
+        setHome(homeIds + back.filter { it !in homeIds && it !in dockIds && it !in folderMembers })
     }
 
     /** Swaps two apps' positions, whether they are on the home pages or in the dock. */
@@ -312,6 +397,19 @@ data class WidgetSpec(
                 p.getOrNull(6)?.toFloatOrNull() ?: -1f,
                 p.getOrNull(7)?.toIntOrNull() ?: 0,
             )
+        }
+    }
+}
+
+/** A folder on the home screen: a name and the apps inside it (their component ids). */
+data class FolderSpec(val id: String, val name: String, val members: List<String>) {
+    fun pack() = "$id|$name|${members.joinToString(";")}"
+
+    companion object {
+        fun parse(line: String): FolderSpec? {
+            val p = line.split('|')
+            if (p.size < 3) return null
+            return FolderSpec(p[0], p[1], p[2].split(';').filter { it.isNotEmpty() })
         }
     }
 }

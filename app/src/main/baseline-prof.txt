@@ -1,0 +1,10 @@
+HSPLandroidx/compose/**;->**(**)**
+HSPLandroidx/activity/**;->**(**)**
+HSPLandroidx/lifecycle/**;->**(**)**
+HSPLandroidx/core/**;->**(**)**
+HSPLkotlin/**;->**(**)**
+HSPLkotlinx/coroutines/**;->**(**)**
+HSPLcom/blinds/os/**;->**(**)**
+Landroidx/compose/**;
+Landroidx/activity/**;
+Lcom/blinds/os/**;

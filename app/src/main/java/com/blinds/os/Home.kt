@@ -95,6 +95,8 @@ class UiState {
 
     // drag and drop of icons while editing
     var showWidgetPicker by mutableStateOf(false)
+    var mergeTarget by mutableStateOf<String?>(null)
+    var openFolderId by mutableStateOf<String?>(null)
     var editWidgetId by mutableStateOf<String?>(null)
     var showCity by mutableStateOf(false)
     var addWeatherAfterCity = false
@@ -112,6 +114,8 @@ class UiState {
     fun closeAll() {
         dragId = null
         showWidgetPicker = false
+        openFolderId = null
+        mergeTarget = null
         editWidgetId = null
         showCity = false
         editing = false
@@ -126,7 +130,7 @@ class UiState {
 
 class CellInfo(val token: Any, val rect: Rect)
 
-private val LocalJiggle = compositionLocalOf<State<Float>?> { null }
+internal val LocalJiggle = compositionLocalOf<State<Float>?> { null }
 
 class Placed(val id: String, val col: Int, val row: Int, val w: Int, val h: Int)
 
@@ -175,7 +179,8 @@ fun HomeScreen(model: AppModel, ui: UiState) {
     val byId = remember(model.apps) { model.apps.associateBy { it.id } }
     val dockIds = s.dockIds.filter { it in byId && it !in hidden }.take(s.dockCount)
     val specs = s.widgets.associateBy { it.id }
-    val homeIds = s.homeIds.filter { (it in byId || it in specs) && it !in hidden && it !in dockIds }
+    val folders = s.folders.associateBy { it.id }
+    val homeIds = s.homeIds.filter { (it in byId || it in specs || it in folders) && it !in hidden && it !in dockIds }
 
     val cols = s.cols
     val rowsN = s.rows
@@ -192,26 +197,68 @@ fun HomeScreen(model: AppModel, ui: UiState) {
     val boxOrigin = remember { floatArrayOf(0f, 0f) }
     val boxSize = remember { floatArrayOf(0f, 0f) }
 
-    fun reorderAt(p: Offset, id: String, last: String?): String? {
+    class Hover(var id: String? = null, var since: Long = 0L)
+
+    fun isLoose(id: String) = id.startsWith("w:") || id.startsWith("f:")
+
+    /** Called many times a second while dragging: reorders after a short hover, or marks a folder merge. */
+    fun step(p: Offset, id: String, hv: Hover) {
+        val now = System.currentTimeMillis()
         val hit = ui.cellAt(p)
-        if (hit == id) return null
-        if (hit != null) {
-            if (hit == last) return last
-            s.dropOnto(id, hit, hit in s.dockIds)
-            return hit
+        if (hit == id) {
+            hv.id = null
+            ui.mergeTarget = null
+            return
         }
-        val dr = ui.dockRect
-        if (dr != null && dr.contains(p)) {
-            if (id !in s.dockIds && s.dockIds.size < s.dockCount) s.dropOnto(id, null, true)
-            return null
+        if (hit == null) {
+            hv.id = null
+            ui.mergeTarget = null
+            if (isLoose(id)) {
+                val inPager0 = p.y >= boxOrigin[1] && p.y <= boxOrigin[1] + boxSize[1]
+                val page0 = pager.currentPage
+                if (inPager0 && page0 < pagesNow.size) {
+                    val last0 = pagesNow[page0].lastOrNull()
+                    if (last0 != id) s.dropOnto(id, last0, false, after = true)
+                }
+                return
+            }
+            val dr = ui.dockRect
+            if (dr != null && dr.contains(p)) {
+                if (id !in s.dockIds && s.dockIds.size < s.dockCount) s.dropOnto(id, null, true)
+                return
+            }
+            val inPager = p.y >= boxOrigin[1] && p.y <= boxOrigin[1] + boxSize[1]
+            val page = pager.currentPage
+            if (inPager && page < pagesNow.size) {
+                val lastOnPage = pagesNow[page].lastOrNull()
+                if (lastOnPage != id) s.dropOnto(id, lastOnPage, false, after = true)
+            }
+            return
         }
-        val inPager = p.y >= boxOrigin[1] && p.y <= boxOrigin[1] + boxSize[1]
-        val page = pager.currentPage
-        if (inPager && page < pagesNow.size) {
-            val lastOnPage = pagesNow[page].lastOrNull()
-            if (lastOnPage != id) s.dropOnto(id, lastOnPage, false, after = true)
+        if (hit != hv.id) {
+            hv.id = hit
+            hv.since = now
+            ui.mergeTarget = null
         }
-        return null
+        val held = now - hv.since
+        val inDock = hit in s.dockIds
+        if (inDock && isLoose(id)) return
+        val rect = ui.cells[hit]?.rect ?: return
+        val canMerge = !inDock && !isLoose(id) && !hit.startsWith("w:")
+        val mid = Rect(
+            rect.center.x - rect.width * 0.25f, rect.center.y - rect.height * 0.25f,
+            rect.center.x + rect.width * 0.25f, rect.center.y + rect.height * 0.25f,
+        )
+        if (canMerge && mid.contains(p)) {
+            ui.mergeTarget = if (held >= 450L) hit else null
+            return
+        }
+        ui.mergeTarget = null
+        val need = if (canMerge) 220L else 120L
+        if (held >= need) {
+            s.dropOnto(id, hit, inDock)
+            hv.id = null
+        }
     }
 
     // holding a dragged icon at the screen edge flips to the next page
@@ -227,7 +274,9 @@ fun HomeScreen(model: AppModel, ui: UiState) {
 
     // the launcher never closes on Back; it steps back out of edit mode / to the first page instead
     BackHandler(enabled = true) {
-        if (ui.editing) {
+        if (ui.openFolderId != null) {
+            ui.openFolderId = null
+        } else if (ui.editing) {
             ui.editing = false
             ui.selectedId = null
         } else if (pager.currentPage != 0) {
@@ -288,25 +337,31 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 ui.dragId = grabbed
                                 ui.dragX = start.x
                                 ui.dragY = start.y
-                                var lastTarget: String? = null
+                                val hv = Hover()
+                                var p = start
                                 val edge = 36.dp.toPx()
                                 try {
                                     while (true) {
-                                        val ev = awaitPointerEvent(PointerEventPass.Initial)
-                                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                                        ch.consume()
-                                        if (!ch.pressed) break
-                                        val p = Offset(ch.position.x + boxOrigin[0], ch.position.y + boxOrigin[1])
-                                        ui.dragX = p.x
-                                        ui.dragY = p.y
-                                        ui.edgeDir = when {
-                                            ch.position.x < edge -> -1
-                                            ch.position.x > size.width - edge -> 1
-                                            else -> 0
+                                        val ev = withTimeoutOrNull(100L) { awaitPointerEvent(PointerEventPass.Initial) }
+                                        if (ev != null) {
+                                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                            ch.consume()
+                                            if (!ch.pressed) break
+                                            p = Offset(ch.position.x + boxOrigin[0], ch.position.y + boxOrigin[1])
+                                            ui.dragX = p.x
+                                            ui.dragY = p.y
+                                            ui.edgeDir = when {
+                                                ch.position.x < edge -> -1
+                                                ch.position.x > size.width - edge -> 1
+                                                else -> 0
+                                            }
                                         }
-                                        lastTarget = reorderAt(p, grabbed, lastTarget)
+                                        step(p, grabbed, hv)
                                     }
                                 } finally {
+                                    val mt = ui.mergeTarget
+                                    ui.mergeTarget = null
+                                    if (mt != null) s.mergeIntoFolder(grabbed, mt)
                                     ui.dragId = null
                                     ui.edgeDir = 0
                                 }
@@ -363,6 +418,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 HomePage(
                                     items = placedPages.getOrElse(page) { emptyList() },
                                     specs = specs,
+                                    folders = folders,
                                     byId = byId,
                                     model = model,
                                     ui = ui,
@@ -416,6 +472,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                 }
             }
 
+            FolderSheet(model = model, ui = ui)
             WidgetPicker(ui)
             WidgetEditor(ui)
             CityPicker(ui)
@@ -432,6 +489,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
 private fun HomePage(
     items: List<Placed>,
     specs: Map<String, WidgetSpec>,
+    folders: Map<String, FolderSpec>,
     byId: Map<String, AppEntry>,
     model: AppModel,
     ui: UiState,
@@ -449,8 +507,11 @@ private fun HomePage(
                     .size(cellW * it.w, cellH * it.h),
                 contentAlignment = Alignment.Center,
             ) {
+                val folder = folders[it.id]
                 if (spec != null) {
                     WidgetItem(spec = spec, ui = ui, modifier = Modifier.fillMaxSize())
+                } else if (folder != null) {
+                    FolderCell(folder = folder, byId = byId, ui = ui)
                 } else if (app != null) {
                     AppCell(app = app, model = model, ui = ui, labels = s.showLabels, movable = true)
                 }
@@ -523,7 +584,7 @@ fun AppCell(
             .graphicsLayer {
                 alpha = if (ui.dragId == app.id) 0f else 1f
                 rotationZ = if (editing) (jiggle?.value ?: 0f) * flip else 0f
-                val sc = if (selected) 1.14f else 1f
+                val sc = if (selected || ui.mergeTarget == app.id) 1.14f else 1f
                 scaleX = sc
                 scaleY = sc
             }

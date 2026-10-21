@@ -223,7 +223,16 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     if (s.wallpaperVersion > 0) {
                         SwitchRow("Use my photo", s.useCustomWallpaper) { s.useCustomWallpaper = it }
                     }
+                    ActionRow("Surprise me (random wallpaper)") {
+                        val pick = WALLPAPERS.filter { it.id != s.wallpaper || s.useCustomWallpaper }.random()
+                        s.wallpaper = pick.id
+                        s.useCustomWallpaper = false
+                    }
                     SwitchRow("Animated wallpaper", s.animatedWallpaper) { s.animatedWallpaper = it }
+                    ChoiceRow("Live effect", LIVE_EFFECTS, s.wallpaperLive) { s.wallpaperLive = it }
+                    SliderRow("Drift speed", "${"%.1f".format(s.wallpaperSpeed)}x", s.wallpaperSpeed, 0.2f..2.5f) { s.wallpaperSpeed = it }
+                    ChoiceRow("Animation frame rate", listOf("15" to "15 fps", "30" to "30 fps", "60" to "60 fps"), s.wallpaperFps.toString()) { s.wallpaperFps = it.toInt() }
+                    SwitchRow("Pause animation in battery saver", s.pauseSaver) { s.pauseSaver = it }
                     SliderRow("Parallax", pct(s.parallax), s.parallax, 0f..1f) { s.parallax = it }
                 }
 

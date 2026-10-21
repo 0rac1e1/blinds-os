@@ -57,6 +57,51 @@ val WALLPAPERS = listOf(
         listOf(Color(0xFF0A0A0A), Color(0xFF1C1C1E), Color(0xFF2C2C2E)),
         listOf(Color(0xFF6B7280), Color(0xFF9CA3AF), Color(0xFF4B5563), Color(0xFFE5E7EB)),
     ),
+    WallpaperSpec(
+        "timeofday", "Time of day",
+        listOf(Color(0xFF0A5BA8), Color(0xFF7A3E7A), Color(0xFFFF9E80)),
+        listOf(Color(0xFFFFF3B0), Color(0xFFFF6B9A), Color(0xFF64D2FF), Color(0xFFFFD36B)),
+    ),
+    WallpaperSpec(
+        "sunset", "Sunset",
+        listOf(Color(0xFF2A0A3A), Color(0xFFB8335A), Color(0xFFFF9A3C)),
+        listOf(Color(0xFFFFD166), Color(0xFFFF6B6B), Color(0xFFC77DFF), Color(0xFFFFB347)),
+    ),
+    WallpaperSpec(
+        "midnight", "Midnight",
+        listOf(Color(0xFF02030A), Color(0xFF0A1128), Color(0xFF14213D)),
+        listOf(Color(0xFF3A86FF), Color(0xFF5E60CE), Color(0xFF4361EE), Color(0xFF7209B7)),
+    ),
+    WallpaperSpec(
+        "peach", "Peach",
+        listOf(Color(0xFF4A1F2B), Color(0xFFD1685A), Color(0xFFFFB38A)),
+        listOf(Color(0xFFFFD6A5), Color(0xFFFF8FA3), Color(0xFFFFC09F), Color(0xFFFFEE93)),
+    ),
+    WallpaperSpec(
+        "mint", "Mint",
+        listOf(Color(0xFF062B2B), Color(0xFF1B7F79), Color(0xFF7FE0C3)),
+        listOf(Color(0xFFB8F2E6), Color(0xFF5EEAD4), Color(0xFFA7F3D0), Color(0xFFCAFFBF)),
+    ),
+    WallpaperSpec(
+        "lavender", "Lavender",
+        listOf(Color(0xFF20123A), Color(0xFF6B4FA8), Color(0xFFB8A1E8)),
+        listOf(Color(0xFFE0C3FC), Color(0xFF9D8DF1), Color(0xFFF1C0E8), Color(0xFFB9FBC0)),
+    ),
+    WallpaperSpec(
+        "rosegold", "Rose Gold",
+        listOf(Color(0xFF2B1418), Color(0xFF9C5B5B), Color(0xFFE8B4A0)),
+        listOf(Color(0xFFF7D1C4), Color(0xFFD99A8B), Color(0xFFFFE3D1), Color(0xFFC77D6A)),
+    ),
+    WallpaperSpec(
+        "slate", "Slate",
+        listOf(Color(0xFF10151C), Color(0xFF2A3441), Color(0xFF4A5A6E)),
+        listOf(Color(0xFF8DA2B8), Color(0xFF5E7186), Color(0xFFB8C7D6), Color(0xFF3F5063)),
+    ),
+    WallpaperSpec(
+        "neon", "Neon",
+        listOf(Color(0xFF05010F), Color(0xFF1A0536), Color(0xFF2B0A57)),
+        listOf(Color(0xFFFF00E5), Color(0xFF00F0FF), Color(0xFF7DFF00), Color(0xFFFF3D81)),
+    ),
 )
 
 /**
@@ -99,7 +144,7 @@ object SoftWallpaper {
  * Paints the wallpaper into the current DrawScope. [screen] is always the full screen size.
  * With [soft] set, a custom photo is drawn from its pre-blurred copy.
  */
-fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean, soft: Boolean = false) {
+fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean, soft: Boolean = false, live: Boolean = false) {
     val screen = bd.size
     if (screen.width <= 0f || screen.height <= 0f) return
     val par = s.parallax * 36f
@@ -107,6 +152,7 @@ fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean, so
     val oy = bd.tilt.y * par
 
     val custom = if (s.useCustomWallpaper) bd.custom else null
+    val spec = if (s.wallpaper == "timeofday") timeOfDaySpec() else (WALLPAPERS.firstOrNull { it.id == s.wallpaper } ?: WALLPAPERS[0])
     if (custom != null) {
         val scale = max(screen.width / custom.width, screen.height / custom.height) * 1.1f
         val dw = custom.width * scale
@@ -120,7 +166,6 @@ fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean, so
             dstSize = IntSize(dw.roundToInt(), dh.roundToInt()),
         )
     } else {
-        val spec = WALLPAPERS.firstOrNull { it.id == s.wallpaper } ?: WALLPAPERS[0]
         val t = bd.timeSec
         drawRect(
             brush = Brush.linearGradient(spec.base, start = Offset.Zero, end = Offset(screen.width, screen.height)),
@@ -142,6 +187,10 @@ fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean, so
                 center = center,
             )
         }
+    }
+
+    if (live && s.wallpaperLive != "none") {
+        drawLive(s.wallpaperLive, bd.timeSec, screen, bd.tilt, spec.blobs)
     }
 
     // gentle vignette so icons and labels stay readable on any wallpaper

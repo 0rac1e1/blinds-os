@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.PowerManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,18 +37,18 @@ fun BackdropHost(
     val s = LocalSettings.current
     val ctx = LocalContext.current
 
-    // wallpaper clock (about 30 fps is plenty for slow-moving blobs, and kinder to the battery)
-    LaunchedEffect(s.animatedWallpaper, resumed, freeze) {
-        if (s.animatedWallpaper && resumed && !freeze) {
-            var last = 0L
-            var origin = -1L
-            val offsetSec = backdrop.timeSec
+    // wallpaper clock: frame rate and drift speed are settings; paused in battery saver
+    LaunchedEffect(s.animatedWallpaper, resumed, freeze, s.wallpaperFps, s.pauseSaver) {
+        val saver = s.pauseSaver && (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).isPowerSaveMode
+        if (s.animatedWallpaper && resumed && !freeze && !saver) {
+            val minGap = 1_000_000_000L / s.wallpaperFps.coerceAtLeast(5) - 2_000_000L
+            var prev = -1L
             while (true) {
                 withFrameNanos { now ->
-                    if (origin < 0) origin = now
-                    if (now - last >= 33_000_000L) {
-                        last = now
-                        backdrop.timeSec = offsetSec + (now - origin) / 1_000_000_000f
+                    if (prev < 0) prev = now
+                    if (now - prev >= minGap) {
+                        backdrop.timeSec += (now - prev) / 1_000_000_000f * s.wallpaperSpeed
+                        prev = now
                     }
                 }
             }
@@ -86,7 +87,7 @@ fun BackdropHost(
             .fillMaxSize()
             .onSizeChanged { backdrop.size = Size(it.width.toFloat(), it.height.toFloat()) }
     ) {
-        Canvas(Modifier.fillMaxSize()) { drawWallpaper(backdrop, s, dark) }
+        Canvas(Modifier.fillMaxSize()) { drawWallpaper(backdrop, s, dark, live = true) }
         content()
     }
 }

@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 data class AppEntry(
     val id: String,
@@ -34,11 +35,61 @@ class AppModel(private val ctx: Context, private val settings: LauncherSettings)
         private set
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val cachePrefs = ctx.getSharedPreferences("blinds_cache", Context.MODE_PRIVATE)
+
+    init {
+        // show the last known app list straight away; the real list replaces it a moment later
+        apps = readCache()
+        preloadIcons(apps)
+    }
+
+    private fun readCache(): List<AppEntry> = try {
+        (cachePrefs.getString("apps", "") ?: "").split('\n').mapNotNull { line ->
+            val p = line.split('\t')
+            if (p.size < 5) return@mapNotNull null
+            val cn = ComponentName.unflattenFromString(p[0]) ?: return@mapNotNull null
+            AppEntry(p[0], p[1], p[2], cn, p[3].toIntOrNull() ?: ApplicationInfo.CATEGORY_UNDEFINED, p[4] == "1")
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun writeCache(list: List<AppEntry>) {
+        val text = list.joinToString("\n") {
+            listOf(it.id, it.pkg, it.label.replace('\t', ' ').replace('\n', ' '), it.category, if (it.isSystem) 1 else 0).joinToString("\t")
+        }
+        cachePrefs.edit().putString("apps", text).apply()
+    }
+
+    /** Renders the icons of the dock and the first home page in the background so they are ready when drawn. */
+    private fun preloadIcons(list: List<AppEntry>) {
+        if (list.isEmpty()) return
+        val byId = list.associateBy { it.id }
+        val ids = (settings.dockIds + settings.homeIds).filter { it in byId }.take(settings.cols * settings.rows + settings.dockCount)
+        val px = (settings.iconSize * ctx.resources.displayMetrics.density).roundToInt()
+        val style = if (settings.iconQuality == "off") "default" else settings.iconStyle
+        scope.launch(Dispatchers.Default) {
+            ids.forEach { id ->
+                val app = byId[id] ?: return@forEach
+                val key = "${app.id}|$px|${settings.themedIcons}|${settings.accent}"
+                IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, key)
+                if (style != "default") {
+                    if (style == "glass") IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|bg", LAYER_BG)
+                    else IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|mono", LAYER_MONO)
+                    IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|fg", LAYER_FG)
+                }
+            }
+        }
+    }
 
     fun refresh(addedPkg: String? = null) {
         scope.launch {
             val list = withContext(Dispatchers.Default) { load() }
             apps = list
+            if (list.isNotEmpty()) {
+                writeCache(list)
+                if (addedPkg == null) preloadIcons(list)
+            }
             if (!settings.seeded && list.isNotEmpty()) {
                 seed(list)
             } else {
