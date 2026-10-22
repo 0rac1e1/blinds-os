@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import android.app.WallpaperManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -83,13 +84,30 @@ private val ACCENTS = listOf(
 /** Whether the built-in Customize app is open. */
 object CustomizeState {
     var show by mutableStateOf(false)
+
+    /** Which section is open, or null for the section list. */
+    var section by mutableStateOf<String?>(null)
 }
+
+private class SectionInfo(val id: String, val title: String, val blurb: String)
+
+private val SECTIONS = listOf(
+    SectionInfo("wallpaper", "Wallpaper", "Backgrounds, live effects, lock screen"),
+    SectionInfo("icons", "App icons", "Shape, size, glass style, icon packs"),
+    SectionInfo("glass", "Liquid glass", "Blur, frost, tint, light"),
+    SectionInfo("home", "Home screen", "Grid size, dock, corners, App Library"),
+    SectionInfo("badges", "Notification badges", "Counts and dots on icons"),
+    SectionInfo("look", "Appearance and behaviour", "Theme, accent, haptics, search"),
+    SectionInfo("system", "System", "About, backup, default home app, reset"),
+)
 
 /** The built-in Customize app: a full-screen glass app inside the launcher, like the Blinds OS app. */
 @Composable
 fun SettingsSheet(model: AppModel, ui: UiState) {
     if (!CustomizeState.show) return
-    BackHandler { CustomizeState.show = false }
+    BackHandler {
+        if (CustomizeState.section != null) CustomizeState.section = null else CustomizeState.show = false
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -108,6 +126,7 @@ private fun SheetBody(model: AppModel, ui: UiState) {
     val ink = LocalInk.current
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val dark = LocalDark.current
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -155,8 +174,13 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Txt("Customize", size = 24.sp, weight = FontWeight.Bold)
-                GlassButton("Done", onClick = { ui.showSettings = false }, accent = true)
+                val open = SECTIONS.firstOrNull { it.id == CustomizeState.section }
+                Txt(open?.title ?: "Customize", size = 24.sp, weight = FontWeight.Bold)
+                if (open != null) {
+                    GlassButton("Back", onClick = { CustomizeState.section = null }, accent = true)
+                } else {
+                    GlassButton("Done", onClick = { ui.showSettings = false }, accent = true)
+                }
             }
 
             Column(
@@ -165,16 +189,76 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp)
             ) {
-                Group("Liquid glass") {
-                    SliderRow("Blur", "${s.glassBlur.roundToInt()}", s.glassBlur, 0f..60f) { s.glassBlur = it }
-                    SliderRow("Frost", pct(s.glassTint), s.glassTint, 0f..0.6f) { s.glassTint = it }
-                    SwatchRow("Tint", GLASS_TINTS, s.glassTintArgb) { s.glassTintArgb = it }
-                    SliderRow("Edge light", pct(s.glassEdge), s.glassEdge, 0f..1f) { s.glassEdge = it }
-                    SliderRow("Depth", pct(s.glassDepth), s.glassDepth, 0f..1f) { s.glassDepth = it }
-                    SliderRow("Light angle", "${s.glassLight.roundToInt()}°", s.glassLight, 0f..360f) { s.glassLight = it }
-                    SwitchRow("Light follows tilt", s.motionLight) { s.motionLight = it }
-                }
+                if (CustomizeState.section == null) {
+                    SECTIONS.forEach { sec ->
+                        SectionRow(sec.title, sec.blurb) { CustomizeState.section = sec.id }
+                    }
+                } else when (CustomizeState.section) {
+                "wallpaper" -> {
+                Group("Wallpaper") {
+                    WallpaperRow(selected = if (s.useCustomWallpaper) "" else s.wallpaper) {
+                        s.wallpaper = it
+                        s.useCustomWallpaper = false
+                    }
+                    ActionRow(if (s.wallpaperVersion > 0) "Choose a different photo…" else "Choose a photo…") {
+                        picker.launch("image/*")
+                    }
+                    if (s.wallpaperVersion > 0) {
+                        SwitchRow("Use my photo", s.useCustomWallpaper) { s.useCustomWallpaper = it }
+                    }
+                    ActionRow("Surprise me (random wallpaper)") {
+                        val pick = WALLPAPERS.filter { it.id != s.wallpaper || s.useCustomWallpaper }.random()
+                        s.wallpaper = pick.id
+                        s.useCustomWallpaper = false
+                    }
+                    SwitchRow("Animated wallpaper", s.animatedWallpaper) { s.animatedWallpaper = it }
+                    ChoiceRow("Live effect", LIVE_EFFECTS, s.wallpaperLive) { s.wallpaperLive = it }
+                    SliderRow("Drift speed", "${"%.1f".format(s.wallpaperSpeed)}x", s.wallpaperSpeed, 0.2f..2.5f) { s.wallpaperSpeed = it }
+                    ChoiceRow("Animation frame rate", listOf("15" to "15 fps", "30" to "30 fps", "60" to "60 fps"), s.wallpaperFps.toString()) { s.wallpaperFps = it.toInt() }
+                    SwitchRow("Pause animation in battery saver", s.pauseSaver) { s.pauseSaver = it }
+                    SliderRow("Parallax", pct(s.parallax), s.parallax, 0f..1f) { s.parallax = it }
 
+                    ActionRow("Use my old home wallpaper") {
+                        if (SystemWallpaper.importCurrent(ctx, WallpaperManager.FLAG_SYSTEM)) {
+                            s.wallpaperVersion += 1
+                            s.useCustomWallpaper = true
+                            Toast.makeText(ctx, "Copied your old wallpaper", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(ctx, "Android didn't let me read it. Choose the photo instead.", Toast.LENGTH_LONG).show()
+                            picker.launch("image/*")
+                        }
+                    }
+                    ActionRow("Use my old lock screen wallpaper") {
+                        if (SystemWallpaper.importCurrent(ctx, WallpaperManager.FLAG_LOCK)) {
+                            s.wallpaperVersion += 1
+                            s.useCustomWallpaper = true
+                            Toast.makeText(ctx, "Copied your lock screen wallpaper", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(ctx, "Android didn't let me read it. Choose the photo instead.", Toast.LENGTH_LONG).show()
+                            picker.launch("image/*")
+                        }
+                    }
+                    ActionRow("Set this wallpaper on my lock screen") {
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                SystemWallpaper.setLock(ctx, SystemWallpaper.render(ctx, s, dark))
+                            }
+                            Toast.makeText(
+                                ctx,
+                                if (ok) "Lock screen updated" else "Couldn't change the lock screen",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                    Txt(
+                        "The lock screen gets a still picture of your wallpaper (live effects can't run there). Copying your old wallpaper doesn't work with every Samsung or live wallpaper; if so, pick the photo yourself. Setting the lock screen replaces your current one.",
+                        size = 12.sp,
+                        color = ink.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                }
+                "icons" -> {
                 Group("Icons") {
                     ChoiceRow(
                         "Shape",
@@ -204,7 +288,6 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     SwitchRow("Themed icons (Android 13+)", s.themedIcons) { s.themedIcons = it }
                     SwitchRow("Show app names", s.showLabels) { s.showLabels = it }
                 }
-
                 Group("Icon pack") {
                     val packs = remember { IconPacks.installed(ctx) }
                     ChoiceRow("Pack", listOf("" to "None (normal icons)") + packs.map { it.pkg to it.label }, s.iconPack) { s.iconPack = it }
@@ -216,7 +299,19 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
-
+                }
+                "glass" -> {
+                Group("Liquid glass") {
+                    SliderRow("Blur", "${s.glassBlur.roundToInt()}", s.glassBlur, 0f..60f) { s.glassBlur = it }
+                    SliderRow("Frost", pct(s.glassTint), s.glassTint, 0f..0.6f) { s.glassTint = it }
+                    SwatchRow("Tint", GLASS_TINTS, s.glassTintArgb) { s.glassTintArgb = it }
+                    SliderRow("Edge light", pct(s.glassEdge), s.glassEdge, 0f..1f) { s.glassEdge = it }
+                    SliderRow("Depth", pct(s.glassDepth), s.glassDepth, 0f..1f) { s.glassDepth = it }
+                    SliderRow("Light angle", "${s.glassLight.roundToInt()}°", s.glassLight, 0f..360f) { s.glassLight = it }
+                    SwitchRow("Light follows tilt", s.motionLight) { s.motionLight = it }
+                }
+                }
+                "home" -> {
                 Group("Home screen") {
                     StepperRow("Columns", s.cols, 3..6) { s.cols = it }
                     StepperRow("Rows", s.rows, 4..8) { s.rows = it }
@@ -227,31 +322,8 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     SliderRow("Corner radius", "${s.cornerRadius.roundToInt()}dp", s.cornerRadius, 12f..44f) { s.cornerRadius = it }
                     SwitchRow("App Library page", s.appLibrary) { s.appLibrary = it }
                 }
-
-                Group("Wallpaper") {
-                    WallpaperRow(selected = if (s.useCustomWallpaper) "" else s.wallpaper) {
-                        s.wallpaper = it
-                        s.useCustomWallpaper = false
-                    }
-                    ActionRow(if (s.wallpaperVersion > 0) "Choose a different photo…" else "Choose a photo…") {
-                        picker.launch("image/*")
-                    }
-                    if (s.wallpaperVersion > 0) {
-                        SwitchRow("Use my photo", s.useCustomWallpaper) { s.useCustomWallpaper = it }
-                    }
-                    ActionRow("Surprise me (random wallpaper)") {
-                        val pick = WALLPAPERS.filter { it.id != s.wallpaper || s.useCustomWallpaper }.random()
-                        s.wallpaper = pick.id
-                        s.useCustomWallpaper = false
-                    }
-                    SwitchRow("Animated wallpaper", s.animatedWallpaper) { s.animatedWallpaper = it }
-                    ChoiceRow("Live effect", LIVE_EFFECTS, s.wallpaperLive) { s.wallpaperLive = it }
-                    SliderRow("Drift speed", "${"%.1f".format(s.wallpaperSpeed)}x", s.wallpaperSpeed, 0.2f..2.5f) { s.wallpaperSpeed = it }
-                    ChoiceRow("Animation frame rate", listOf("15" to "15 fps", "30" to "30 fps", "60" to "60 fps"), s.wallpaperFps.toString()) { s.wallpaperFps = it.toInt() }
-                    SwitchRow("Pause animation in battery saver", s.pauseSaver) { s.pauseSaver = it }
-                    SliderRow("Parallax", pct(s.parallax), s.parallax, 0f..1f) { s.parallax = it }
                 }
-
+                "badges" -> {
                 Group("Notification badges") {
                     ChoiceRow("Style", listOf("number" to "Number", "dot" to "Dot", "off" to "Off"), s.badgeStyle) { s.badgeStyle = it }
                     SwatchRow("Colour", BADGE_COLORS, s.badgeColor) { s.badgeColor = it }
@@ -266,19 +338,21 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
-
+                }
+                "look" -> {
                 Group("Appearance") {
                     ChoiceRow("Theme", listOf("system" to "System", "dark" to "Dark", "light" to "Light"), s.theme) { s.theme = it }
                     SwatchRow("Accent", ACCENTS, s.accent) { s.accent = it }
                 }
-
                 Group("Behaviour") {
                     SwitchRow("Haptic feedback", s.haptics) { s.haptics = it }
                     SwitchRow("Swipe down for search", s.swipeSearch) { s.swipeSearch = it }
                 }
-
+                }
+                "system" -> {
                 Group("System") {
                     ActionRow("About Blinds OS and patch notes") {
+                        CustomizeState.section = null
                         ui.showSettings = false
                         AboutState.show = true
                     }
@@ -293,6 +367,9 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                         s.resetLayout()
                         model.refresh()
                     }
+                }
+                }
+                    else -> {}
                 }
 
                 Txt(
@@ -377,6 +454,27 @@ private fun openHomeSettings(ctx: Context) {
 // ---------------------------------------------------------------------------------------------
 // Little building blocks
 // ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun SectionRow(title: String, blurb: String, onClick: () -> Unit) {
+    val ink = LocalInk.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(ink.copy(alpha = 0.08f))
+            .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Txt(title, size = 17.sp, weight = FontWeight.SemiBold)
+            Txt(blurb, size = 12.sp, color = ink.copy(alpha = 0.6f))
+        }
+        Txt("›", size = 24.sp, color = ink.copy(alpha = 0.5f))
+    }
+}
 
 @Composable
 fun Group(title: String, content: @Composable ColumnScope.() -> Unit) {

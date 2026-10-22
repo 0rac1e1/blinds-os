@@ -1,15 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Paintbrush for the built-in Customize app -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- handle -->
     <path
-        android:pathData="M34,38L74,38M34,54L74,54M34,70L74,70"
-        android:strokeColor="#E6FFFFFF"
-        android:strokeWidth="4"
+        android:pathData="M74,30L60,44"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="8"
         android:strokeLineCap="round" />
+    <!-- ferrule -->
     <path
-        android:pathData="M42,38a6,6 0 1,0 12,0a6,6 0 1,0 -12,0M56,54a6,6 0 1,0 12,0a6,6 0 1,0 -12,0M38,70a6,6 0 1,0 12,0a6,6 0 1,0 -12,0"
-        android:fillColor="#FFFFFFFF" />
+        android:pathData="M61,43L52,52"
+        android:strokeColor="#B3FFFFFF"
+        android:strokeWidth="11"
+        android:strokeLineCap="butt" />
+    <!-- bristles -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M48,52L56,60C52,68 44,74 34,75C35,66 40,57 48,52z" />
+    <!-- paint stroke -->
+    <path
+        android:pathData="M30,82C38,78 48,86 58,81"
+        android:strokeColor="#99FFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round" />
 </vector>

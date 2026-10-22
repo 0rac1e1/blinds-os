@@ -398,6 +398,27 @@ fun HomeScreen(model: AppModel, ui: UiState) {
     CompositionLocalProvider(LocalJiggle provides jiggle) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+                // edit-mode buttons sit above the grid so they never cover the top row
+                if (ui.editing) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        GlassButton("Customize", onClick = {
+                            ui.editing = false
+                            ui.selectedId = null
+                            ui.showSettings = true
+                        })
+                        GlassButton("+ Widget", onClick = {
+                            ui.firstIdOnPage = pages.getOrNull(pager.currentPage)?.firstOrNull()
+                            ui.showWidgetPicker = true
+                        })
+                        GlassButton("Done", onClick = {
+                            ui.editing = false
+                            ui.selectedId = null
+                        }, accent = true)
+                    }
+                }
                 Box(
                     Modifier
                         .weight(1f)
@@ -546,26 +567,6 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                         }
                     }
 
-                    if (ui.editing) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            GlassButton("Customize", onClick = {
-                                ui.editing = false
-                                ui.selectedId = null
-                                ui.showSettings = true
-                            })
-                            GlassButton("+ Widget", onClick = {
-                                ui.firstIdOnPage = pages.getOrNull(pager.currentPage)?.firstOrNull()
-                                ui.showWidgetPicker = true
-                            })
-                            GlassButton("Done", onClick = {
-                                ui.editing = false
-                                ui.selectedId = null
-                            }, accent = true)
-                        }
-                    }
                 }
 
                 PageDots(count = pageCount, current = pager.currentPage)

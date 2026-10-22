@@ -14,6 +14,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -52,7 +54,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "27.0"
+    const val NAME = "27.0.1"
 }
 
 class PatchNote(
@@ -64,6 +66,18 @@ class PatchNote(
 )
 
 val PATCH_NOTES = listOf(
+    PatchNote(
+        version = "27.0.1",
+        title = "Cleaner Customize, lock screen sync",
+        date = "October 2026",
+        items = listOf(
+            "Customize is split into sections (Wallpaper, App icons, Liquid glass, Home screen, Notification badges, Appearance, System)",
+            "Wallpaper: set your Blinds wallpaper on the lock screen, or copy your old home or lock screen wallpaper in (works when Android allows it)",
+            "Customize has a new paintbrush icon",
+            "Fixed the Blinds OS logo sometimes showing another app's icon; the logo is now built in",
+            "Edit mode buttons moved above the grid so they no longer cover the remove buttons on the top row",
+        ),
+    ),
     PatchNote(
         version = "27.0",
         title = "Place anything, real widgets, icon packs",
@@ -293,6 +307,27 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
+/** The Blinds OS logo, drawn from bundled artwork (never from an installed app's icon). */
+@Composable
+fun BlindsLogo(size: androidx.compose.ui.unit.Dp) {
+    Box(
+        Modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.28f))
+            .background(
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(Color(0xFF1B3FA0), Color(0xFF6A2C9E), Color(0xFFD02A44))
+                )
+            ),
+    ) {
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = "Blinds OS",
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
 @Composable
 fun BlindsAboutApp(model: AppModel) {
     if (!AboutState.show) return
@@ -309,7 +344,6 @@ fun BlindsAboutApp(model: AppModel) {
     LaunchedEffect(Unit) {
         if (AboutState.update == UpdateState.Idle) checkUpdates()
     }
-    val own = model.apps.firstOrNull { it.isAbout }
     val isDefault = remember {
         try {
             val r = ctx.packageManager.resolveActivity(
@@ -350,7 +384,7 @@ fun BlindsAboutApp(model: AppModel) {
                         Modifier.fillMaxWidth().padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        if (own != null) AppIcon(own, 84.dp)
+                        BlindsLogo(84.dp)
                         Spacer(Modifier.height(14.dp))
                         Txt("Blinds OS", size = 26.sp, weight = FontWeight.Bold)
                         Txt("Version ${BlindsVersion.NAME}", color = ink.copy(alpha = 0.7f), size = 16.sp)

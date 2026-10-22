@@ -28,10 +28,13 @@ data class AppEntry(
     val isSystem: Boolean,
 ) {
     /** The built-in Customize app (an alias of the launcher itself). */
-    val isCustomize: Boolean get() = component.className.endsWith("CustomizeAlias")
+    val isCustomize: Boolean
+        get() = component.packageName == "com.blinds.os" && component.className.endsWith("CustomizeAlias")
 
     /** The built-in Blinds OS about / patch notes app. */
-    val isAbout: Boolean get() = component.className.endsWith("MainActivity") && !isCustomize
+    val isAbout: Boolean
+        get() = component.packageName == "com.blinds.os" &&
+            component.className.endsWith("MainActivity") && !isCustomize
 }
 
 /** Loads the installed-app list and keeps it fresh when apps are installed or removed. */
