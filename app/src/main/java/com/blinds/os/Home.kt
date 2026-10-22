@@ -45,6 +45,9 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.border
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -86,7 +89,9 @@ import kotlin.math.roundToInt
 /** Which overlay is open and what is being edited. Lives for as long as the launcher does. */
 class UiState {
     var editing by mutableStateOf(false)
-    var showSettings by mutableStateOf(false)
+    var showSettings: Boolean
+        get() = CustomizeState.show
+        set(v) { CustomizeState.show = v }
     var showSearch by mutableStateOf(false)
     var menuApp by mutableStateOf<AppEntry?>(null)
     var openCategory by mutableStateOf<String?>(null)
@@ -101,6 +106,13 @@ class UiState {
     var showCity by mutableStateOf(false)
     var addWeatherAfterCity = false
     var firstIdOnPage: String? = null
+    var dropPreview by mutableStateOf<Rect?>(null)
+    var grabCol = 0
+    var grabRow = 0
+    var pendingPin by mutableStateOf<String?>(null)
+    var pendingPage = 0
+    var currentPage = 0
+    var showWidgetList by mutableStateOf(false)
     var dragId by mutableStateOf<String?>(null)
     var dragX by mutableStateOf(0f)
     var dragY by mutableStateOf(0f)
@@ -113,6 +125,8 @@ class UiState {
 
     fun closeAll() {
         dragId = null
+        dropPreview = null
+        showWidgetList = false
         showWidgetPicker = false
         openFolderId = null
         mergeTarget = null
@@ -134,39 +148,76 @@ internal val LocalJiggle = compositionLocalOf<State<Float>?> { null }
 
 class Placed(val id: String, val col: Int, val row: Int, val w: Int, val h: Int)
 
-/** Flows items onto pages in order; widgets take several cells. Small items fill gaps beside widgets. */
-private fun layoutPages(ids: List<String>, spanOf: (String) -> Pair<Int, Int>, cols: Int, rows: Int): List<List<Placed>> {
-    val pages = mutableListOf<MutableList<Placed>>()
-    var occ = Array(rows) { BooleanArray(cols) }
-    var cur = mutableListOf<Placed>()
-    pages += cur
-    for (id in ids) {
-        val (w0, h0) = spanOf(id)
-        val w = w0.coerceIn(1, cols)
-        val h = h0.coerceIn(1, rows)
-        var placed = false
-        while (!placed) {
-            loop@ for (r in 0..rows - h) {
-                for (c in 0..cols - w) {
-                    var free = true
-                    for (rr in r until r + h) for (cc in c until c + w) if (occ[rr][cc]) free = false
-                    if (free) {
-                        for (rr in r until r + h) for (cc in c until c + w) occ[rr][cc] = true
-                        cur += Placed(id, c, r, w, h)
-                        placed = true
-                        break@loop
-                    }
-                }
-            }
-            if (!placed) {
-                if (cur.isEmpty()) break
-                occ = Array(rows) { BooleanArray(cols) }
-                cur = mutableListOf()
-                pages += cur
-            }
+private class PageBuf(val rows: Int, val cols: Int) {
+    val occ = Array(rows) { BooleanArray(cols) }
+    val items = mutableListOf<Placed>()
+
+    fun free(c: Int, r: Int, w: Int, h: Int): Boolean {
+        for (rr in r until r + h) for (cc in c until c + w) if (occ[rr][cc]) return false
+        return true
+    }
+
+    fun put(id: String, c: Int, r: Int, w: Int, h: Int) {
+        for (rr in r until r + h) for (cc in c until c + w) occ[rr][cc] = true
+        items += Placed(id, c, r, w, h)
+    }
+
+    /** First free spot, reading left to right, top to bottom. */
+    fun firstFree(w: Int, h: Int): Pair<Int, Int>? {
+        for (r in 0..rows - h) for (c in 0..cols - w) if (free(c, r, w, h)) return c to r
+        return null
+    }
+}
+
+/**
+ * Lays items out on pages. Pinned items go exactly where they were put (biggest first, so a widget that
+ * grows pushes smaller things aside); everything else flows into the first free spot.
+ */
+fun layoutPages(
+    ids: List<String>,
+    spanOf: (String) -> Pair<Int, Int>,
+    pins: Map<String, Pin>,
+    cols: Int,
+    rows: Int,
+): List<List<Placed>> {
+    val bufs = java.util.TreeMap<Int, PageBuf>()
+    val done = HashSet<String>()
+    fun clampSpan(id: String): Pair<Int, Int> {
+        val (w, h) = spanOf(id)
+        return w.coerceIn(1, cols) to h.coerceIn(1, rows)
+    }
+    val pinned = ids.filter { it in pins }.sortedByDescending { val (w, h) = clampSpan(it); w * h }
+    for (id in pinned) {
+        val pin = pins.getValue(id)
+        val (w, h) = clampSpan(id)
+        val c = pin.col.coerceIn(0, cols - w)
+        val r = pin.row.coerceIn(0, rows - h)
+        val b = bufs.getOrPut(pin.page.coerceAtLeast(0)) { PageBuf(rows, cols) }
+        if (b.free(c, r, w, h)) {
+            b.put(id, c, r, w, h)
+            done += id
         }
     }
-    return pages
+    for (id in ids) {
+        if (id in done) continue
+        val (w, h) = clampSpan(id)
+        var spot: Pair<PageBuf, Pair<Int, Int>>? = null
+        for (b in bufs.values) {
+            val f = b.firstFree(w, h)
+            if (f != null) {
+                spot = b to f
+                break
+            }
+        }
+        if (spot == null) {
+            val b = PageBuf(rows, cols)
+            bufs[(if (bufs.isEmpty()) 0 else bufs.lastKey() + 1)] = b
+            spot = b to (0 to 0)
+        }
+        spot.first.put(id, spot.second.first, spot.second.second, w, h)
+    }
+    val pages = bufs.values.filter { it.items.isNotEmpty() }.map { it.items as List<Placed> }
+    return if (pages.isEmpty()) listOf(emptyList()) else pages
 }
 
 @Composable
@@ -177,88 +228,114 @@ fun HomeScreen(model: AppModel, ui: UiState) {
 
     val hidden = s.hiddenIds.toSet()
     val byId = remember(model.apps) { model.apps.associateBy { it.id } }
+    val byIdNow by rememberUpdatedState(byId)
     val dockIds = s.dockIds.filter { it in byId && it !in hidden }.take(s.dockCount)
     val specs = s.widgets.associateBy { it.id }
     val folders = s.folders.associateBy { it.id }
-    val homeIds = s.homeIds.filter { (it in byId || it in specs || it in folders) && it !in hidden && it !in dockIds }
+    val hostedMap = s.hosted.associateBy { it.id }
 
-    val cols = s.cols
-    val rowsN = s.rows
-    val placedPages = remember(homeIds, specs, cols, rowsN) {
-        layoutPages(homeIds, { id -> specs[id]?.span(cols) ?: (1 to 1) }, cols, rowsN)
+    /** Where everything sits right now, computed from the latest settings. */
+    fun computePages(exclude: String? = null): List<List<Placed>> {
+        val hiddenN = s.hiddenIds.toSet()
+        val byN = byIdNow
+        val specsN = s.widgets.associateBy { it.id }
+        val foldN = s.folders.associateBy { it.id }
+        val hostN = s.hosted.associateBy { it.id }
+        val dockN = s.dockIds.toSet()
+        val colsN = s.cols
+        val ids = s.homeIds.filter {
+            it != exclude && (it in byN || it in specsN || it in foldN || it in hostN) && it !in hiddenN && it !in dockN
+        }
+        val span: (String) -> Pair<Int, Int> = { id ->
+            specsN[id]?.span(colsN) ?: hostN[id]?.let { it.cw.coerceAtMost(colsN) to it.ch } ?: (1 to 1)
+        }
+        return layoutPages(ids, span, s.pins, colsN, s.rows)
     }
-    val pages = remember(placedPages) { placedPages.map { pg -> pg.map { it.id } } }
+
+    val placedPages = computePages()
+    // while dragging, one extra empty page appears at the end so an icon can be dropped on a new page
+    val displayPages = if (ui.dragId != null) placedPages + listOf(emptyList()) else placedPages
+    val pages = displayPages.map { pg -> pg.map { it.id } }
     val libraryIndex = if (s.appLibrary) pages.size else -1
     val pageCount = pages.size + (if (s.appLibrary) 1 else 0)
     val pager = rememberPagerState(pageCount = { pageCount })
+    val density = LocalDensity.current
+    val padPx = with(density) { 14.dp.toPx() }
+    SideEffect { ui.currentPage = pager.currentPage }
 
     // ---- drag and drop ----
     val pagesNow by rememberUpdatedState(pages)
     val boxOrigin = remember { floatArrayOf(0f, 0f) }
     val boxSize = remember { floatArrayOf(0f, 0f) }
 
+    fun spanNow(id: String): Pair<Int, Int> {
+        val colsN = s.cols
+        val (w, h) = s.widget(id)?.span(colsN) ?: s.hostedWidget(id)?.let { it.cw.coerceAtMost(colsN) to it.ch } ?: (1 to 1)
+        return w.coerceIn(1, colsN) to h.coerceIn(1, s.rows)
+    }
+
     class Hover(var id: String? = null, var since: Long = 0L)
 
-    fun isLoose(id: String) = id.startsWith("w:") || id.startsWith("f:")
+    fun isLoose(id: String) = id.startsWith("w:") || id.startsWith("f:") || id.startsWith("a:")
 
-    /** Called many times a second while dragging: reorders after a short hover, or marks a folder merge. */
+    /** The grid cell (page, column, row) the dragged item's top-left corner would land on. */
+    fun targetCell(p: Offset, id: String): Triple<Int, Int, Int>? {
+        val gw = boxSize[0] - 2 * padPx
+        val gh = boxSize[1]
+        if (gw <= 0f || gh <= 0f || p.y < boxOrigin[1] || p.y > boxOrigin[1] + gh) return null
+        val cw = gw / s.cols
+        val chh = gh / s.rows
+        val (w, h) = spanNow(id)
+        val col = (((p.x - boxOrigin[0] - padPx) / cw).toInt() - ui.grabCol).coerceIn(0, s.cols - w)
+        val row = (((p.y - boxOrigin[1]) / chh).toInt() - ui.grabRow).coerceIn(0, s.rows - h)
+        return Triple(pager.currentPage, col, row)
+    }
+
+    fun previewRect(cell: Triple<Int, Int, Int>, id: String): Rect {
+        val gw = boxSize[0] - 2 * padPx
+        val cw = gw / s.cols
+        val chh = boxSize[1] / s.rows
+        val (w, h) = spanNow(id)
+        val left = boxOrigin[0] + padPx + cell.second * cw
+        val top = boxOrigin[1] + cell.third * chh
+        return Rect(left, top, left + w * cw, top + h * chh)
+    }
+
+    /** Called many times a second while dragging: shows where it would land, or marks a folder merge. */
     fun step(p: Offset, id: String, hv: Hover) {
         val now = System.currentTimeMillis()
         val hit = ui.cellAt(p)
-        if (hit == id) {
-            hv.id = null
-            ui.mergeTarget = null
-            return
-        }
-        if (hit == null) {
-            hv.id = null
-            ui.mergeTarget = null
-            if (isLoose(id)) {
-                val inPager0 = p.y >= boxOrigin[1] && p.y <= boxOrigin[1] + boxSize[1]
-                val page0 = pager.currentPage
-                if (inPager0 && page0 < pagesNow.size) {
-                    val last0 = pagesNow[page0].lastOrNull()
-                    if (last0 != id) s.dropOnto(id, last0, false, after = true)
-                }
+        val dr = ui.dockRect
+        val overDock = dr != null && dr.contains(p)
+        val canMerge = !overDock && !isLoose(id) && hit != null && hit != id && hit !in s.dockIds &&
+            !hit.startsWith("w:") && !hit.startsWith("a:")
+        if (canMerge) {
+            val rect = hit?.let { ui.cells[it]?.rect }
+            if (hit != hv.id) {
+                hv.id = hit
+                hv.since = now
+            }
+            val mid = rect?.let {
+                Rect(
+                    it.center.x - it.width * 0.25f, it.center.y - it.height * 0.25f,
+                    it.center.x + it.width * 0.25f, it.center.y + it.height * 0.25f,
+                )
+            }
+            if (mid != null && mid.contains(p)) {
+                ui.mergeTarget = if (now - hv.since >= 450L) hit else null
+                ui.dropPreview = null
                 return
             }
-            val dr = ui.dockRect
-            if (dr != null && dr.contains(p)) {
-                if (id !in s.dockIds && s.dockIds.size < s.dockCount) s.dropOnto(id, null, true)
-                return
-            }
-            val inPager = p.y >= boxOrigin[1] && p.y <= boxOrigin[1] + boxSize[1]
-            val page = pager.currentPage
-            if (inPager && page < pagesNow.size) {
-                val lastOnPage = pagesNow[page].lastOrNull()
-                if (lastOnPage != id) s.dropOnto(id, lastOnPage, false, after = true)
-            }
-            return
-        }
-        if (hit != hv.id) {
-            hv.id = hit
-            hv.since = now
-            ui.mergeTarget = null
-        }
-        val held = now - hv.since
-        val inDock = hit in s.dockIds
-        if (inDock && isLoose(id)) return
-        val rect = ui.cells[hit]?.rect ?: return
-        val canMerge = !inDock && !isLoose(id) && !hit.startsWith("w:")
-        val mid = Rect(
-            rect.center.x - rect.width * 0.25f, rect.center.y - rect.height * 0.25f,
-            rect.center.x + rect.width * 0.25f, rect.center.y + rect.height * 0.25f,
-        )
-        if (canMerge && mid.contains(p)) {
-            ui.mergeTarget = if (held >= 450L) hit else null
-            return
+        } else {
+            hv.id = null
         }
         ui.mergeTarget = null
-        val need = if (canMerge) 220L else 120L
-        if (held >= need) {
-            s.dropOnto(id, hit, inDock)
-            hv.id = null
+        if (overDock) {
+            ui.dropPreview = null
+            return
         }
+        val cell = targetCell(p, id)
+        ui.dropPreview = if (cell != null && cell.first < pagesNow.size) previewRect(cell, id) else null
     }
 
     // holding a dragged icon at the screen edge flips to the next page
@@ -269,6 +346,22 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                 val t = pager.currentPage + ui.edgeDir
                 if (t in 0 until pagesNow.size) pager.animateScrollToPage(t) else break
             }
+        }
+    }
+
+    // a newly added widget goes to the first free spot of the page you were looking at
+    LaunchedEffect(ui.pendingPin) {
+        val id = ui.pendingPin ?: return@LaunchedEffect
+        ui.pendingPin = null
+        val others = computePages(exclude = id)
+        val page = ui.pendingPage.coerceIn(0, others.size - 1)
+        val (w, h) = spanNow(id)
+        val buf = PageBuf(s.rows, s.cols)
+        others.getOrNull(page)?.forEach { buf.put(it.id, it.col, it.row, it.w, it.h) }
+        val spot = buf.firstFree(w, h)
+        if (spot != null) {
+            s.pinTo(id, page, spot.first, spot.second)
+            s.commitPlacements(computePages())
         }
     }
 
@@ -337,6 +430,11 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 ui.dragId = grabbed
                                 ui.dragX = start.x
                                 ui.dragY = start.y
+                                val gr = ui.cells[grabbed]?.rect
+                                val cellW = (boxSize[0] - 2 * padPx) / s.cols
+                                val cellH = boxSize[1] / s.rows
+                                ui.grabCol = if (gr != null && cellW > 0f) ((start.x - gr.left) / cellW).toInt().coerceAtLeast(0) else 0
+                                ui.grabRow = if (gr != null && cellH > 0f) ((start.y - gr.top) / cellH).toInt().coerceAtLeast(0) else 0
                                 val hv = Hover()
                                 var p = start
                                 val edge = 36.dp.toPx()
@@ -361,7 +459,26 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 } finally {
                                     val mt = ui.mergeTarget
                                     ui.mergeTarget = null
-                                    if (mt != null) s.mergeIntoFolder(grabbed, mt)
+                                    ui.dropPreview = null
+                                    val dr = ui.dockRect
+                                    if (mt != null) {
+                                        s.mergeIntoFolder(grabbed, mt)
+                                        s.commitPlacements(computePages())
+                                    } else if (dr != null && dr.contains(p)) {
+                                        if (!isLoose(grabbed)) {
+                                            val hit = ui.cellAt(p)
+                                            val inDock = hit != null && hit in s.dockIds && hit != grabbed
+                                            if (inDock || grabbed in s.dockIds || s.dockIds.size < s.dockCount) {
+                                                s.dropOnto(grabbed, if (inDock) hit else null, true)
+                                            }
+                                        }
+                                    } else {
+                                        val cell = targetCell(p, grabbed)
+                                        if (cell != null && cell.first < pagesNow.size) {
+                                            s.placeAt(grabbed, cell.first, cell.second, cell.third)
+                                            s.commitPlacements(computePages())
+                                        }
+                                    }
                                     ui.dragId = null
                                     ui.edgeDir = 0
                                 }
@@ -416,9 +533,11 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 LibraryPage(model = model, ui = ui)
                             } else {
                                 HomePage(
-                                    items = placedPages.getOrElse(page) { emptyList() },
+                                    items = displayPages.getOrElse(page) { emptyList() },
                                     specs = specs,
                                     folders = folders,
+                                    hosted = hostedMap,
+                                    onLayoutChanged = { s.commitPlacements(computePages()) },
                                     byId = byId,
                                     model = model,
                                     ui = ui,
@@ -453,6 +572,16 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                 Dock(dockIds = dockIds, byId = byId, model = model, ui = ui)
             }
 
+            ui.dropPreview?.let { r ->
+                Box(
+                    Modifier
+                        .offset { IntOffset(r.left.roundToInt(), r.top.roundToInt()) }
+                        .size(with(density) { r.width.toDp() }, with(density) { r.height.toDp() })
+                        .padding(3.dp)
+                        .border(2.dp, Color(s.accent).copy(alpha = 0.9f), RoundedCornerShape(16.dp))
+                )
+            }
+
             ui.dragId?.let { did ->
                 byId[did]?.let { app ->
                     AppIcon(
@@ -474,6 +603,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
 
             FolderSheet(model = model, ui = ui)
             WidgetPicker(ui)
+            AppWidgetPicker(ui)
             WidgetEditor(ui)
             CityPicker(ui)
             if (ui.showSearch) Spotlight(model = model, ui = ui)
@@ -490,6 +620,8 @@ private fun HomePage(
     items: List<Placed>,
     specs: Map<String, WidgetSpec>,
     folders: Map<String, FolderSpec>,
+    hosted: Map<String, HostedWidget>,
+    onLayoutChanged: () -> Unit,
     byId: Map<String, AppEntry>,
     model: AppModel,
     ui: UiState,
@@ -501,15 +633,18 @@ private fun HomePage(
         for (it in items) {
             val spec = specs[it.id]
             val app = byId[it.id]
+            val folder = folders[it.id]
+            val host = hosted[it.id]
             Box(
                 Modifier
                     .offset(x = cellW * it.col, y = cellH * it.row)
                     .size(cellW * it.w, cellH * it.h),
                 contentAlignment = Alignment.Center,
             ) {
-                val folder = folders[it.id]
                 if (spec != null) {
-                    WidgetItem(spec = spec, ui = ui, modifier = Modifier.fillMaxSize())
+                    WidgetItem(spec = spec, ui = ui, cellW = cellW, cellH = cellH, onLayoutChanged = onLayoutChanged, modifier = Modifier.fillMaxSize())
+                } else if (host != null) {
+                    HostedWidgetItem(host = host, ui = ui, cellW = cellW, cellH = cellH, onLayoutChanged = onLayoutChanged, modifier = Modifier.fillMaxSize())
                 } else if (folder != null) {
                     FolderCell(folder = folder, byId = byId, ui = ui)
                 } else if (app != null) {
@@ -522,6 +657,10 @@ private fun HomePage(
 
 fun launchApp(ctx: Context, view: View, app: AppEntry, bounds: IntRect?) {
     // the Blinds OS app lives inside the launcher itself
+    if (app.isCustomize) {
+        CustomizeState.show = true
+        return
+    }
     if (app.pkg == ctx.packageName) {
         AboutState.show = true
         return
@@ -605,6 +744,7 @@ fun AppCell(
     ) {
         Box {
             AppIcon(app = app, size = s.iconSize.dp)
+            if (!editing) BadgeBubble(Badges.counts[app.pkg] ?: 0)
             if (editing) {
                 Box(
                     Modifier

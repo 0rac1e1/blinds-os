@@ -14,6 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.rememberScrollState
@@ -78,9 +84,26 @@ private val WIDGET_TEXTS = listOf(
     0xFFFF453A.toInt(), 0xFF30D158.toInt(), 0xFFBF5AF2.toInt(),
 )
 
-/** A widget on the home screen: its content, plus the edit-mode controls (remove, size, edit). */
+/** Small, wide or large, judged by how many cells the widget covers. */
+fun WidgetSpec.cls(cols: Int): String {
+    val (w, h) = span(cols)
+    return when {
+        w * h <= 4 -> "s"
+        h >= 4 -> "l"
+        else -> "w"
+    }
+}
+
+/** A widget on the home screen: its content, plus the edit-mode controls (remove, size, edit, resize handle). */
 @Composable
-fun WidgetItem(spec: WidgetSpec, ui: UiState, modifier: Modifier = Modifier) {
+fun WidgetItem(
+    spec: WidgetSpec,
+    ui: UiState,
+    cellW: Dp,
+    cellH: Dp,
+    onLayoutChanged: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val s = LocalSettings.current
     val editing = ui.editing
     Box(
@@ -97,16 +120,87 @@ fun WidgetItem(spec: WidgetSpec, ui: UiState, modifier: Modifier = Modifier) {
             }
         }
         if (editing) {
+            val (w, h) = spec.span(s.cols)
             Chip("−", Alignment.TopStart) { s.removeWidget(spec.id) }
             Row(
-                Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                Modifier.align(Alignment.BottomStart).padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PillButton("Size") { s.updateWidget(spec.copy(size = nextSize(spec.size))) }
+                PillButton("Size") {
+                    val presets = listOf(2 to 2, s.cols to 2, s.cols to 4)
+                    val n = presets[(presets.indexOf(w to h) + 1) % presets.size]
+                    s.updateWidget(spec.copy(cw = n.first, ch = n.second))
+                    onLayoutChanged()
+                }
                 PillButton("Edit") { ui.editWidgetId = spec.id }
             }
+            ResizeHandle(w, h, cellW, cellH, s.cols, s.rows, onResize = { nw, nh ->
+                s.widget(spec.id)?.let { s.updateWidget(it.copy(cw = nw, ch = nh)) }
+            }, onDone = onLayoutChanged)
         }
     }
+}
+
+/** The corner handle you drag to stretch a widget over more (or fewer) grid cells. */
+@Composable
+fun BoxScope.ResizeHandle(
+    w: Int,
+    h: Int,
+    cellW: Dp,
+    cellH: Dp,
+    maxW: Int,
+    maxH: Int,
+    onResize: (Int, Int) -> Unit,
+    onDone: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val cwPx = with(density) { cellW.toPx() }
+    val chPx = with(density) { cellH.toPx() }
+    val curW by rememberUpdatedState(w)
+    val curH by rememberUpdatedState(h)
+    val resize by rememberUpdatedState(onResize)
+    val done by rememberUpdatedState(onDone)
+    Box(
+        Modifier
+            .align(Alignment.BottomEnd)
+            .padding(2.dp)
+            .size(36.dp)
+            .pointerInput(cwPx, chPx, maxW, maxH) {
+                var dx = 0f
+                var dy = 0f
+                var sw = 1
+                var sh = 1
+                detectDragGestures(
+                    onDragStart = {
+                        dx = 0f
+                        dy = 0f
+                        sw = curW
+                        sh = curH
+                    },
+                    onDragEnd = { done() },
+                    onDragCancel = { done() },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        dx += amount.x
+                        dy += amount.y
+                        val nw = (sw + (dx / cwPx).roundToInt()).coerceIn(1, maxW)
+                        val nh = (sh + (dy / chPx).roundToInt()).coerceIn(1, maxH)
+                        if (nw != curW || nh != curH) resize(nw, nh)
+                    },
+                )
+            }
+            .clip(CircleShape)
+            .drawBehind {
+                drawRect(Color(0xE6303036))
+                val a = Offset(size.width * 0.34f, size.height * 0.66f)
+                val b = Offset(size.width * 0.66f, size.height * 0.34f)
+                drawLine(Color.White, a, b, strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(Color.White, Offset(a.x, a.y - size.height * 0.16f), a, strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(Color.White, Offset(a.x + size.width * 0.16f, a.y), a, strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(Color.White, Offset(b.x, b.y + size.height * 0.16f), b, strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(Color.White, Offset(b.x - size.width * 0.16f, b.y), b, strokeWidth = 2.5.dp.toPx(), cap = StrokeCap.Round)
+            },
+    )
 }
 
 /** The glass card (or nothing, for "No card") a widget sits in, with the widget's own look applied. */
@@ -177,8 +271,9 @@ fun ClockBody(spec: WidgetSpec) {
     val minute = now / 60_000L
     val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
     val bare = spec.style == "bare"
-    val small = spec.size == "s"
-    val large = spec.size == "l"
+    val cls = spec.cls(LocalSettings.current.cols)
+    val small = cls == "s"
+    val large = cls == "l"
 
     if (spec.style == "analog") {
         AnalogFace(now, ink, small)
@@ -256,7 +351,9 @@ fun WidgetPicker(ui: UiState) {
                 Txt("Add a widget", color = ink, size = 20.sp, weight = FontWeight.SemiBold)
                 Txt("It is added to this page. Drag it where you want, then use Size and Edit while editing.", color = ink.copy(alpha = 0.7f), size = 13.sp)
                 val add: (String, String, String) -> Unit = { type, size, style ->
-                    s.addWidget(type, size, style, ui.firstIdOnPage)
+                    val id = s.addWidget(type, size, style, ui.firstIdOnPage)
+                    ui.pendingPage = ui.currentPage
+                    ui.pendingPin = id
                     ui.showWidgetPicker = false
                 }
                 GlassButton("Weather", onClick = {
@@ -265,8 +362,14 @@ fun WidgetPicker(ui: UiState) {
                         ui.addWeatherAfterCity = true
                         ui.showCity = true
                     } else {
-                        s.addWidget("weather", "wide", "card", ui.firstIdOnPage)
+                        val id = s.addWidget("weather", "wide", "card", ui.firstIdOnPage)
+                        ui.pendingPage = ui.currentPage
+                        ui.pendingPin = id
                     }
+                })
+                GlassButton("Widgets from your apps…", onClick = {
+                    ui.showWidgetPicker = false
+                    ui.showWidgetList = true
                 })
                 GlassButton("Digital clock", onClick = { add("clock", "wide", "digital") })
                 GlassButton("Analog clock", onClick = { add("clock", "s", "analog") })
@@ -301,8 +404,14 @@ fun WidgetEditor(ui: UiState) {
                     Txt(if (spec.type == "weather") "Weather widget" else "Clock widget", color = ink, size = 19.sp, weight = FontWeight.SemiBold)
                     GlassButton("Done", onClick = { ui.editWidgetId = null }, accent = true)
                 }
-                ChoiceRow("Size", listOf("s" to "Small", "w" to "Wide", "l" to "Large"), spec.size) {
-                    s.updateWidget(spec.copy(size = it))
+                ChoiceRow("Size (or drag the corner handle)", listOf("s" to "Small", "w" to "Wide", "l" to "Large"), spec.cls(s.cols)) {
+                    val n = when (it) {
+                        "s" -> 2 to 2
+                        "w" -> s.cols to 2
+                        else -> s.cols to 4
+                    }
+                    s.updateWidget(spec.copy(cw = n.first, ch = n.second))
+                    ui.pendingPin = null
                 }
                 if (spec.type == "clock") {
                     ChoiceRow("Style", listOf("digital" to "Digital", "analog" to "Analog", "bare" to "No card"), spec.style) {

@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "26.4.3"
+    const val NAME = "27.0"
 }
 
 class PatchNote(
@@ -66,23 +66,34 @@ class PatchNote(
 val PATCH_NOTES = listOf(
     PatchNote(
         version = "27.0",
-        title = "First release of 2027",
-        date = "Planned, not final",
-        planned = true,
+        title = "Place anything, real widgets, icon packs",
+        date = "October 2026",
         items = listOf(
-            "Real Android widgets",
-            "Icon packs",
+            "Free placement: drop icons, folders and widgets on any grid cell, on any page (hold a dragged item at the edge to reach a new page)",
+            "Resize widgets by dragging the corner handle while editing; other things move out of the way",
+            "Real Android widgets from other apps: + Widget > Widgets from your apps",
+            "Icon packs: Customize > Icon pack picks any installed Nova / ADW style pack",
+            "Customize is its own app, and holding the home screen is for arranging",
+        ),
+    ),
+    PatchNote(
+        version = "26.5.1",
+        title = "Customize app",
+        date = "October 2026",
+        items = listOf(
+            "Customize is now its own app on your home screen (next to the Blinds OS app) instead of a pop-up sheet, and opens full screen",
+            "Customize still opens from the Customize button while editing the home screen",
         ),
     ),
     PatchNote(
         version = "26.5",
-        title = "Folders and notifications",
-        date = "Planned, not final",
-        planned = true,
+        title = "Folders, badges and wallpapers",
+        date = "October 2026",
         items = listOf(
-            "Folders",
-            "Notification badges on icons",
-            "More wallpapers and more live wallpapers",
+            "Notification badges: a count (or dot) on app icons and folders. Turn on notification access in Customize > Notification badges. Only counts notifications, never reads them",
+            "Folders: hold one app over another in edit mode, rename, open, take apps out",
+            "9 new wallpapers and 7 live effects (rain, snow, night sky, waves, lava lamp, fireflies, aurora curtains), with speed, frame rate and battery saver controls",
+            "Faster start-up: the home screen appears right away",
         ),
     ),
     PatchNote(
@@ -298,7 +309,7 @@ fun BlindsAboutApp(model: AppModel) {
     LaunchedEffect(Unit) {
         if (AboutState.update == UpdateState.Idle) checkUpdates()
     }
-    val own = model.apps.firstOrNull { it.pkg == ctx.packageName }
+    val own = model.apps.firstOrNull { it.isAbout }
     val isDefault = remember {
         try {
             val r = ctx.packageManager.resolveActivity(

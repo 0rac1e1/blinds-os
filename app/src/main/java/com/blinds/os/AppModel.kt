@@ -26,7 +26,13 @@ data class AppEntry(
     val component: ComponentName,
     val category: Int,
     val isSystem: Boolean,
-)
+) {
+    /** The built-in Customize app (an alias of the launcher itself). */
+    val isCustomize: Boolean get() = component.className.endsWith("CustomizeAlias")
+
+    /** The built-in Blinds OS about / patch notes app. */
+    val isAbout: Boolean get() = component.className.endsWith("MainActivity") && !isCustomize
+}
 
 /** Loads the installed-app list and keeps it fresh when apps are installed or removed. */
 class AppModel(private val ctx: Context, private val settings: LauncherSettings) {
@@ -71,12 +77,12 @@ class AppModel(private val ctx: Context, private val settings: LauncherSettings)
         scope.launch(Dispatchers.Default) {
             ids.forEach { id ->
                 val app = byId[id] ?: return@forEach
-                val key = "${app.id}|$px|${settings.themedIcons}|${settings.accent}"
-                IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, key)
+                val key = "${app.id}|$px|${settings.themedIcons}|${settings.accent}|${settings.iconPack}"
+                IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, key, pack = settings.iconPack)
                 if (style != "default") {
-                    if (style == "glass") IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|bg", LAYER_BG)
-                    else IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|mono", LAYER_MONO)
-                    IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|fg", LAYER_FG)
+                    if (style == "glass") IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|bg", LAYER_BG, settings.iconPack)
+                    else IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|mono", LAYER_MONO, settings.iconPack)
+                    IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|fg", LAYER_FG, settings.iconPack)
                 }
             }
         }
@@ -99,6 +105,7 @@ class AppModel(private val ctx: Context, private val settings: LauncherSettings)
                 if (!settings.dockChecked && list.isNotEmpty()) repairDock(list)
             }
             if (!settings.aboutPlaced && list.isNotEmpty()) placeAbout(list)
+            if (!settings.customizePlaced && list.isNotEmpty()) placeCustomize(list)
             if (list.isNotEmpty()) settings.migrateWidgets()
         }
     }
@@ -174,17 +181,39 @@ class AppModel(private val ctx: Context, private val settings: LauncherSettings)
             category = ApplicationInfo.CATEGORY_UNDEFINED,
             isSystem = true,
         )
-        return (installed + ownEntry).sortedBy { it.label.lowercase() }
+        val cust = ComponentName(ctx.packageName, "com.blinds.os.CustomizeAlias")
+        val customizeEntry = AppEntry(
+            id = cust.flattenToShortString(),
+            pkg = ctx.packageName,
+            label = "Customize",
+            component = cust,
+            category = ApplicationInfo.CATEGORY_UNDEFINED,
+            isSystem = true,
+        )
+        return (installed + ownEntry + customizeEntry).sortedBy { it.label.lowercase() }
     }
 
     /** One time: put the Blinds OS app first on the home screen. */
     private fun placeAbout(list: List<AppEntry>) {
-        val own = list.firstOrNull { it.pkg == ctx.packageName }
+        val own = list.firstOrNull { it.isAbout }
         if (own != null) {
             settings.setHome(listOf(own.id) + settings.homeIds.filter { it != own.id })
             settings.setDock(settings.dockIds.filter { it != own.id })
         }
         settings.aboutPlaced = true
+    }
+
+    /** One time: put the Customize app right after the Blinds OS app. */
+    private fun placeCustomize(list: List<AppEntry>) {
+        val c = list.firstOrNull { it.isCustomize }
+        if (c != null) {
+            val home = settings.homeIds.filter { it != c.id }.toMutableList()
+            val aboutAt = list.firstOrNull { it.isAbout }?.let { home.indexOf(it.id) } ?: -1
+            home.add(if (aboutAt >= 0) aboutAt + 1 else 0, c.id)
+            settings.setHome(home)
+            settings.setDock(settings.dockIds.filter { it != c.id })
+        }
+        settings.customizePlaced = true
     }
 
     /** First run: put the phone, messages, browser and camera in the dock and fill the home pages. */

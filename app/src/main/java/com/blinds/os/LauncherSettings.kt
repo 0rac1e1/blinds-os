@@ -79,6 +79,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var iconShine by pref("iconShine", 0.8f)                // top sheen + specular highlight
     var iconEdge by pref("iconEdge", 0.8f)                  // rim light brightness and thickness
     var iconTintAmt by pref("iconTintAmt", 0.35f)           // how much of the app's colour (or the accent) shows
+    var iconPack by pref("iconPack", "")                      // package name of the chosen icon pack, "" = none
     var iconDarkGlass by pref("iconDarkGlass", false)       // dark glass instead of light glass
 
     // ---------- Layout ----------
@@ -106,6 +107,8 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var accent by pref("accent", 0xFF0A84FF.toInt())
 
     // ---------- Behaviour ----------
+    var badgeStyle by pref("badgeStyle", "number")           // number | dot | off
+    var badgeColor by pref("badgeColor", 0xFFFF3B30.toInt())
     var haptics by pref("haptics", true)
     var swipeSearch by pref("swipeSearch", true)
 
@@ -113,6 +116,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var seeded by pref("seeded", false, resets = false)
     var dockChecked by pref("dockChecked", false, resets = false)
     var aboutPlaced by pref("aboutPlaced", false, resets = false)
+    var customizePlaced by pref("customizePlaced", false, resets = false)
     var weatherName by pref("weatherName", "", resets = false)
     var weatherLat by pref("weatherLat", "", resets = false)
     var weatherLon by pref("weatherLon", "", resets = false)
@@ -121,6 +125,8 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var weatherKey by pref("weatherKey", "", resets = false)
     var weatherTime by pref("weatherTime", "", resets = false)
     private var foldersRaw by pref("folders", "", resets = false)
+    private var pinsRaw by pref("grid", "", resets = false)
+    private var hostedRaw by pref("awidgets", "", resets = false)
     var widgetsMigrated by pref("widgetsMigrated", false, resets = false)
     private var widgetsRaw by pref("widgets", "", resets = false)
     private var homeRaw by pref("home", "", resets = false)
@@ -138,13 +144,14 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     private fun saveWidgets(list: List<WidgetSpec>) { widgetsRaw = list.joinToString("\n") { it.pack() } }
 
     /** Adds a widget to the home screen, before [before] (or first if null). */
-    fun addWidget(type: String, size: String, style: String, before: String?) {
+    fun addWidget(type: String, size: String, style: String, before: String?): String {
         val id = "w:$type:${System.currentTimeMillis()}"
         saveWidgets(widgets + WidgetSpec(id, type, size, style))
         val home = homeIds.toMutableList()
         val at = if (before != null) home.indexOf(before).let { if (it < 0) 0 else it } else 0
         home.add(at, id)
         setHome(home)
+        return id
     }
 
     fun updateWidget(spec: WidgetSpec) {
@@ -154,6 +161,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     fun removeWidget(id: String) {
         saveWidgets(widgets.filter { it.id != id })
         setHome(homeIds - id)
+        unpin(id)
     }
 
     /** One time (26.3.2 -> 26.4): the old clock card becomes the first clock widget. */
@@ -163,6 +171,71 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         if (clockWidget && widgets.none { it.type == "clock" }) {
             addWidget("clock", "wide", if (clockStyle == "bare") "bare" else "digital", null)
         }
+    }
+
+    // ---------- Free placement on the grid ----------
+
+    val pins: Map<String, Pin>
+        get() = pinsRaw.unpack().mapNotNull { line ->
+            val p = line.split('|')
+            if (p.size < 4) null else {
+                val pg = p[1].toIntOrNull()
+                val c = p[2].toIntOrNull()
+                val r = p[3].toIntOrNull()
+                if (pg == null || c == null || r == null) null else p[0] to Pin(pg, c, r)
+            }
+        }.toMap()
+
+    private fun savePins(map: Map<String, Pin>) {
+        pinsRaw = map.entries.joinToString("\n") { "${it.key}|${it.value.page}|${it.value.col}|${it.value.row}" }
+    }
+
+    fun pinTo(id: String, page: Int, col: Int, row: Int) {
+        savePins(pins + (id to Pin(page, col, row)))
+    }
+
+    fun unpin(id: String) {
+        val m = pins
+        if (id in m) savePins(m - id)
+    }
+
+    /** Makes every item's current spot explicit, so later changes (new apps, removed pages) never shuffle it. */
+    fun commitPlacements(pages: List<List<Placed>>) {
+        val m = LinkedHashMap<String, Pin>()
+        pages.forEachIndexed { pg, items -> items.forEach { m[it.id] = Pin(pg, it.col, it.row) } }
+        savePins(m)
+    }
+
+    private fun inheritPin(from: String, to: String) {
+        val m = pins
+        val p = m[from] ?: return
+        savePins(m + (to to p))
+    }
+
+    // ---------- Real Android widgets ----------
+
+    val hosted: List<HostedWidget> get() = hostedRaw.unpack().mapNotNull { HostedWidget.parse(it) }
+
+    fun hostedWidget(id: String): HostedWidget? = hosted.firstOrNull { it.id == id }
+
+    private fun saveHosted(list: List<HostedWidget>) { hostedRaw = list.joinToString("\n") { it.pack() } }
+
+    fun addHosted(appWidgetId: Int, provider: String, cw: Int, ch: Int): String {
+        val id = "a:$appWidgetId"
+        saveHosted(hosted.filter { it.id != id } + HostedWidget(id, appWidgetId, provider, cw, ch))
+        if (id !in homeIds) setHome(homeIds + id)
+        return id
+    }
+
+    fun updateHosted(h: HostedWidget) { saveHosted(hosted.map { if (it.id == h.id) h else it }) }
+
+    /** Removes it from the home screen and returns its appWidgetId so the caller can free it. */
+    fun removeHosted(id: String): Int? {
+        val h = hostedWidget(id) ?: return null
+        saveHosted(hosted.filter { it.id != id })
+        setHome(homeIds - id)
+        unpin(id)
+        return h.appWidgetId
     }
 
     val folders: List<FolderSpec> get() = foldersRaw.unpack().mapNotNull { FolderSpec.parse(it) }
@@ -184,6 +257,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
             if (at >= 0) {
                 home.removeAt(at)
                 f.members.forEachIndexed { i, m -> if (m !in home) home.add(at + i, m) }
+                f.members.firstOrNull()?.let { inheritPin(f.id, it) }
             }
         }
         saveFolders(all.filter { it.members.size >= 2 })
@@ -212,6 +286,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
             val fid = "f:${System.currentTimeMillis()}"
             saveFolders(folders + FolderSpec(fid, "Folder", listOf(target, dragged)))
             home[idx] = fid
+            inheritPin(target, fid)
         }
         setHome(home)
         setDock(dock)
@@ -237,8 +312,17 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         val at = home.indexOf(id).let { if (it < 0) home.size else it }
         home.remove(id)
         f.members.forEachIndexed { i, m -> if (m !in home) home.add((at + i).coerceAtMost(home.size), m) }
+        f.members.firstOrNull()?.let { inheritPin(id, it) }
         setHome(home)
         saveFolders(folders.filter { it.id != id })
+    }
+
+    /** Drops [id] on the home screen at a grid cell (taking it out of the dock if it came from there). */
+    fun placeAt(id: String, page: Int, col: Int, row: Int) {
+        val dock = dockIds.toMutableList()
+        if (dock.remove(id)) setDock(dock)
+        if (id !in homeIds) setHome(homeIds + id)
+        pinTo(id, page, col, row)
     }
 
     fun setHome(list: List<String>) { homeRaw = list.pack() }
@@ -254,8 +338,11 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         hiddenRaw = ""
         seeded = false
         aboutPlaced = false
+        customizePlaced = false
         widgetsRaw = ""
         foldersRaw = ""
+        pinsRaw = ""
+        hostedRaw = ""
         widgetsMigrated = false
     }
 
@@ -350,6 +437,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
             else -> ti
         }.coerceIn(0, dest.size)
         dest.add(at, id)
+        if (intoDock) unpin(id)
         if (dock.size > dockCount) {
             val extra = dock.lastOrNull { it != id } ?: dock.first()
             dock.remove(extra)
@@ -376,11 +464,13 @@ data class WidgetSpec(
     val tint: Int = 0,
     val corner: Float = -1f,
     val text: Int = 0,
+    val cw: Int = 0,
+    val ch: Int = 0,
 ) {
-    fun pack() = "$id|$type|$size|$style|$frost|$tint|$corner|$text"
+    fun pack() = "$id|$type|$size|$style|$frost|$tint|$corner|$text|$cw|$ch"
 
     /** Cells wide and tall. */
-    fun span(cols: Int): Pair<Int, Int> = when (size) {
+    fun span(cols: Int): Pair<Int, Int> = if (cw > 0 && ch > 0) cw.coerceAtMost(cols) to ch else when (size) {
         "s" -> 2.coerceAtMost(cols) to 2
         "l" -> cols to 4
         else -> cols to 2
@@ -396,6 +486,8 @@ data class WidgetSpec(
                 p.getOrNull(5)?.toIntOrNull() ?: 0,
                 p.getOrNull(6)?.toFloatOrNull() ?: -1f,
                 p.getOrNull(7)?.toIntOrNull() ?: 0,
+                p.getOrNull(8)?.toIntOrNull() ?: 0,
+                p.getOrNull(9)?.toIntOrNull() ?: 0,
             )
         }
     }
@@ -410,6 +502,23 @@ data class FolderSpec(val id: String, val name: String, val members: List<String
             val p = line.split('|')
             if (p.size < 3) return null
             return FolderSpec(p[0], p[1], p[2].split(';').filter { it.isNotEmpty() })
+        }
+    }
+}
+
+/** Where an item is pinned on the home grid. */
+class Pin(val page: Int, val col: Int, val row: Int)
+
+/** A real Android widget from another app, living on the home screen. */
+data class HostedWidget(val id: String, val appWidgetId: Int, val provider: String, val cw: Int, val ch: Int) {
+    fun pack() = "$id|$appWidgetId|$provider|$cw|$ch"
+
+    companion object {
+        fun parse(line: String): HostedWidget? {
+            val p = line.split('|')
+            if (p.size < 5) return null
+            val aw = p[1].toIntOrNull() ?: return null
+            return HostedWidget(p[0], aw, p[2], p[3].toIntOrNull() ?: 2, p[4].toIntOrNull() ?: 2)
         }
     }
 }

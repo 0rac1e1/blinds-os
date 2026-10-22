@@ -323,8 +323,9 @@ fun WeatherBody(spec: WidgetSpec, ui: UiState) {
     }
     val is24 = android.text.format.DateFormat.is24HourFormat(ctx)
     val unitSign = "°"
-    val small = spec.size == "s"
-    val large = spec.size == "l"
+    val cls = spec.cls(s.cols)
+    val small = cls == "s"
+    val large = cls == "l"
     val today = d.days.firstOrNull()
 
     Column(Modifier.fillMaxSize().padding(horizontal = if (small) 12.dp else 20.dp, vertical = if (small) 10.dp else 14.dp)) {
@@ -430,7 +431,9 @@ fun CityPicker(ui: UiState) {
                                     s.weatherKey = ""
                                     Weather.reset()
                                     if (ui.addWeatherAfterCity) {
-                                        s.addWidget("weather", "wide", "card", ui.firstIdOnPage)
+                                        val wid = s.addWidget("weather", "wide", "card", ui.firstIdOnPage)
+                                        ui.pendingPage = ui.currentPage
+                                        ui.pendingPin = wid
                                         ui.addWeatherAfterCity = false
                                     }
                                     ui.showCity = false

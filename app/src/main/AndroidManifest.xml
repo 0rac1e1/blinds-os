@@ -24,6 +24,26 @@
         <intent>
             <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
         </intent>
+        <!-- widgets offered by other apps -->
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
+        <!-- icon packs (Nova / ADW format) -->
+        <intent>
+            <action android:name="org.adw.launcher.THEMES" />
+        </intent>
+        <intent>
+            <action android:name="com.novalauncher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="com.anddoes.launcher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="com.fede.launcher.THEME_ICONPACK" />
+        </intent>
+        <intent>
+            <action android:name="com.teslacoilsw.launcher.THEME" />
+        </intent>
     </queries>
 
     <application
@@ -51,5 +71,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The built-in Customize app: only an icon and a name, it opens the in-launcher settings screen. -->
+        <activity-alias
+            android:name=".CustomizeAlias"
+            android:targetActivity=".MainActivity"
+            android:exported="false"
+            android:label="Customize"
+            android:icon="@mipmap/ic_customize"
+            android:roundIcon="@mipmap/ic_customize" />
+
+        <!-- Counts notifications per app for the badges on icons (only counts, never reads the text). -->
+        <service
+            android:name=".BadgeService"
+            android:exported="true"
+            android:label="Blinds OS badges"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

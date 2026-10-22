@@ -76,6 +76,7 @@ fun FolderCell(folder: FolderSpec, byId: Map<String, AppEntry>, ui: UiState) {
                     }
                 }
             }
+            if (!editing) BadgeBubble(apps.sumOf { Badges.counts[it.pkg] ?: 0 })
             if (editing) {
                 Box(
                     Modifier

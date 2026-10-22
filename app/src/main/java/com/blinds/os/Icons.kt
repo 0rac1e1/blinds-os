@@ -72,9 +72,10 @@ object IconCache {
         accent: Int,
         key: String,
         layer: Int = LAYER_FULL,
+        pack: String = "",
     ): ImageBitmap {
         cache.get(key)?.let { return it }
-        val bmp = withContext(Dispatchers.Default) { render(ctx, app, px, themed, accent, layer) }
+        val bmp = withContext(Dispatchers.Default) { render(ctx, app, px, themed, accent, layer, pack) }
         cache.put(key, bmp)
         return bmp
     }
@@ -82,7 +83,17 @@ object IconCache {
     /** Stand-in (1x1) for "this icon has no such layer". */
     private fun noLayer(): ImageBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).asImageBitmap()
 
-    private fun render(ctx: Context, app: AppEntry, size: Int, themed: Boolean, accent: Int, layer: Int): ImageBitmap {
+    private fun render(ctx: Context, app: AppEntry, size: Int, themed: Boolean, accent: Int, layer: Int, pack: String): ImageBitmap {
+        if (pack.isNotEmpty()) {
+            val pd = IconPacks.drawableFor(ctx, pack, app.component)
+            if (pd != null) {
+                if (layer != LAYER_FULL) return noLayer()
+                val pb = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                val copy: Drawable = pd.constantState?.newDrawable(ctx.resources)?.mutate() ?: pd
+                drawLegacy(Canvas(pb), copy, size)
+                return pb.asImageBitmap()
+            }
+        }
         val pm = ctx.packageManager
         val raw: Drawable = try {
             pm.getActivityIcon(app.component)
@@ -235,11 +246,11 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
     val themed = s.themedIcons
     val accent = s.accent
     val style = if (s.iconQuality == "off") "default" else s.iconStyle
-    val key = "${app.id}|$px|$themed|$accent"
+    val key = "${app.id}|$px|$themed|$accent|${s.iconPack}"
     val glassStyle = style != "default"
 
     val bmp by produceState<ImageBitmap?>(initialValue = IconCache.peek(key), key1 = key) {
-        value = IconCache.load(ctx, app, px, themed, accent, key)
+        value = IconCache.load(ctx, app, px, themed, accent, key, pack = s.iconPack)
     }
 
     if (glassStyle) {
@@ -252,17 +263,17 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
             key1 = bgKey,
             key2 = wantMono,
         ) {
-            value = if (!wantMono) IconCache.load(ctx, app, px, themed, accent, bgKey, LAYER_BG) else null
+            value = if (!wantMono) IconCache.load(ctx, app, px, themed, accent, bgKey, LAYER_BG, s.iconPack) else null
         }
         val fg by produceState<ImageBitmap?>(initialValue = IconCache.peek(fgKey), key1 = fgKey) {
-            value = IconCache.load(ctx, app, px, themed, accent, fgKey, LAYER_FG)
+            value = IconCache.load(ctx, app, px, themed, accent, fgKey, LAYER_FG, s.iconPack)
         }
         val mono by produceState<ImageBitmap?>(
             initialValue = if (wantMono) IconCache.peek(monoKey) else null,
             key1 = monoKey,
             key2 = wantMono,
         ) {
-            value = if (wantMono) IconCache.load(ctx, app, px, themed, accent, monoKey, LAYER_MONO) else null
+            value = if (wantMono) IconCache.load(ctx, app, px, themed, accent, monoKey, LAYER_MONO, s.iconPack) else null
         }
         GlassIcon(
             iconSize = size,

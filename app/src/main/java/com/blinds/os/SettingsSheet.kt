@@ -3,10 +3,12 @@
 package com.blinds.os
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -39,12 +41,17 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,24 +80,23 @@ private val ACCENTS = listOf(
     0xFFFF9F0A.toInt(), 0xFFFF453A.toInt(), 0xFFFF375F.toInt(), 0xFFBF5AF2.toInt(),
 )
 
+/** Whether the built-in Customize app is open. */
+object CustomizeState {
+    var show by mutableStateOf(false)
+}
+
+/** The built-in Customize app: a full-screen glass app inside the launcher, like the Blinds OS app. */
 @Composable
 fun SettingsSheet(model: AppModel, ui: UiState) {
-    BackHandler(enabled = ui.showSettings) { ui.showSettings = false }
-    Box(Modifier.fillMaxSize()) {
-        AnimatedVisibility(visible = ui.showSettings, enter = fadeIn(), exit = fadeOut()) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.25f))
-                    .pointerInput(Unit) { detectTapGestures(onTap = { ui.showSettings = false }) }
-            )
-        }
-        AnimatedVisibility(
-            visible = ui.showSettings,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically(spring(dampingRatio = 0.85f, stiffness = 300f)) { it },
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
+    if (!CustomizeState.show) return
+    BackHandler { CustomizeState.show = false }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.35f))
+            .pointerInput(Unit) { detectTapGestures(onTap = {}) }
+    ) {
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars).padding(12.dp)) {
             SheetBody(model = model, ui = ui)
         }
     }
@@ -138,14 +144,12 @@ private fun SheetBody(model: AppModel, ui: UiState) {
     }
 
     GlassSurface(
-        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.68f).swallowTaps(),
-        shape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
+        modifier = Modifier.fillMaxSize().swallowTaps(),
+        shape = RoundedCornerShape(32.dp),
         strength = 1.5f,
     ) {
         Column(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(40.dp, 5.dp).clip(RoundedCornerShape(50)).background(ink.copy(alpha = 0.3f)))
-            }
+            Spacer(Modifier.height(8.dp))
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -201,6 +205,18 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     SwitchRow("Show app names", s.showLabels) { s.showLabels = it }
                 }
 
+                Group("Icon pack") {
+                    val packs = remember { IconPacks.installed(ctx) }
+                    ChoiceRow("Pack", listOf("" to "None (normal icons)") + packs.map { it.pkg to it.label }, s.iconPack) { s.iconPack = it }
+                    Txt(
+                        if (packs.isEmpty()) "No icon packs found. Install a Nova / ADW style icon pack from the Play Store and it shows up here. Apps the pack does not cover keep their normal icon."
+                        else "Apps the pack does not cover keep their normal icon.",
+                        size = 12.sp,
+                        color = ink.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+
                 Group("Home screen") {
                     StepperRow("Columns", s.cols, 3..6) { s.cols = it }
                     StepperRow("Rows", s.rows, 4..8) { s.rows = it }
@@ -234,6 +250,21 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     ChoiceRow("Animation frame rate", listOf("15" to "15 fps", "30" to "30 fps", "60" to "60 fps"), s.wallpaperFps.toString()) { s.wallpaperFps = it.toInt() }
                     SwitchRow("Pause animation in battery saver", s.pauseSaver) { s.pauseSaver = it }
                     SliderRow("Parallax", pct(s.parallax), s.parallax, 0f..1f) { s.parallax = it }
+                }
+
+                Group("Notification badges") {
+                    ChoiceRow("Style", listOf("number" to "Number", "dot" to "Dot", "off" to "Off"), s.badgeStyle) { s.badgeStyle = it }
+                    SwatchRow("Colour", BADGE_COLORS, s.badgeColor) { s.badgeColor = it }
+                    ActionRow(if (Badges.enabled) "Notification access is on (tap to manage)" else "Turn on notification access…") {
+                        openNotificationAccess(ctx)
+                    }
+                    ActionRow("App info (restricted settings, battery)…") { openAppInfo(ctx) }
+                    Txt(
+                        "Badges only count notifications per app. Blinds OS never reads or stores their text. If the access switch is greyed out, open App info, tap the three dots and choose Allow restricted settings. If badges stop updating, set Battery to Unrestricted there.",
+                        size = 12.sp,
+                        color = ink.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                 }
 
                 Group("Appearance") {
@@ -274,6 +305,45 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 Spacer(Modifier.windowInsetsPadding(WindowInsets.navigationBars).height(28.dp))
             }
         }
+    }
+}
+
+private val BADGE_COLORS = listOf(
+    0xFFFF3B30.toInt(), 0xFFFF9F0A.toInt(), 0xFF30D158.toInt(), 0xFF0A84FF.toInt(),
+    0xFFBF5AF2.toInt(), 0xFFFF375F.toInt(), 0xFF111111.toInt(),
+)
+
+private fun openNotificationAccess(ctx: Context) {
+    try {
+        val i = Intent(
+            if (Build.VERSION.SDK_INT >= 30) Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS
+            else Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
+        )
+        if (Build.VERSION.SDK_INT >= 30) {
+            i.putExtra(
+                Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                ComponentName(ctx, BadgeService::class.java).flattenToString(),
+            )
+        }
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(i)
+    } catch (e: Exception) {
+        try {
+            ctx.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e2: Exception) {
+            // no settings screen available
+        }
+    }
+}
+
+private fun openAppInfo(ctx: Context) {
+    try {
+        ctx.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (e: Exception) {
+        // no settings screen available
     }
 }
 

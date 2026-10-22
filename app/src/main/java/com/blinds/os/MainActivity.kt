@@ -1,5 +1,9 @@
 package com.blinds.os
 
+import android.app.Activity
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -25,6 +29,10 @@ class MainActivity : ComponentActivity() {
     private val ui = UiState()
     private val resumed = mutableStateOf(false)
 
+    private lateinit var widgetHost: AppWidgetHost
+    private var pendingAwId = -1
+    private var pendingInfo: AppWidgetProviderInfo? = null
+
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val pkg = intent.data?.schemeSpecificPart
@@ -44,6 +52,9 @@ class MainActivity : ComponentActivity() {
         settings = LauncherSettings(getSharedPreferences("blinds_os", MODE_PRIVATE))
         model = AppModel(applicationContext, settings)
         model.refresh()
+
+        widgetHost = AppWidgetHost(applicationContext, APP_WIDGET_HOST_ID)
+        WidgetFlow.starter = { info -> beginWidget(info) }
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)
@@ -74,6 +85,7 @@ class MainActivity : ComponentActivity() {
                 LocalDark provides dark,
                 LocalInk provides ink,
                 LocalBackdrop provides backdrop,
+                LocalWidgetHost provides widgetHost,
             ) {
                 BackdropHost(
                     backdrop = backdrop,
@@ -87,9 +99,99 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        try {
+            widgetHost.startListening()
+        } catch (e: Exception) {
+            // widget updates will resume on the next start
+        }
+    }
+
+    override fun onStop() {
+        try {
+            widgetHost.stopListening()
+        } catch (e: Exception) {
+            // not listening
+        }
+        super.onStop()
+    }
+
+    // ---- adding a real Android widget: allocate an id, ask permission to bind it, configure it, place it ----
+
+    private fun beginWidget(info: AppWidgetProviderInfo) {
+        cancelPendingWidget()
+        val id = widgetHost.allocateAppWidgetId()
+        pendingAwId = id
+        pendingInfo = info
+        val awm = AppWidgetManager.getInstance(this)
+        if (awm.bindAppWidgetIdIfAllowed(id, info.provider)) {
+            afterBind()
+        } else {
+            val i = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+            try {
+                @Suppress("DEPRECATION")
+                startActivityForResult(i, REQ_BIND)
+            } catch (e: Exception) {
+                cancelPendingWidget()
+            }
+        }
+    }
+
+    private fun afterBind() {
+        val info = pendingInfo ?: return
+        if (info.configure != null) {
+            try {
+                widgetHost.startAppWidgetConfigureActivityForResult(this, pendingAwId, 0, REQ_CONFIG, null)
+            } catch (e: Exception) {
+                finishWidget()
+            }
+        } else {
+            finishWidget()
+        }
+    }
+
+    private fun finishWidget() {
+        val info = pendingInfo
+        val id = pendingAwId
+        if (info == null || id < 0) return
+        val density = resources.displayMetrics.density
+        val cw = (((info.minWidth / density) + 30f) / 70f).toInt().coerceIn(1, settings.cols)
+        val ch = (((info.minHeight / density) + 30f) / 70f).toInt().coerceIn(1, settings.rows)
+        val hid = settings.addHosted(id, info.provider.flattenToString(), cw, ch)
+        ui.pendingPage = ui.currentPage
+        ui.pendingPin = hid
+        pendingAwId = -1
+        pendingInfo = null
+    }
+
+    private fun cancelPendingWidget() {
+        if (pendingAwId >= 0) {
+            try {
+                widgetHost.deleteAppWidgetId(pendingAwId)
+            } catch (e: Exception) {
+                // already freed
+            }
+        }
+        pendingAwId = -1
+        pendingInfo = null
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        when (requestCode) {
+            REQ_BIND -> if (resultCode == Activity.RESULT_OK) afterBind() else cancelPendingWidget()
+            REQ_CONFIG -> if (resultCode == Activity.RESULT_OK) finishWidget() else cancelPendingWidget()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         resumed.value = true
+        Badges.refreshAccess(this)
     }
 
     override fun onPause() {
@@ -106,11 +208,17 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        WidgetFlow.starter = null
         try {
             unregisterReceiver(packageReceiver)
         } catch (e: Exception) {
             // already gone
         }
         super.onDestroy()
+    }
+
+    companion object {
+        private const val REQ_BIND = 7101
+        private const val REQ_CONFIG = 7102
     }
 }
