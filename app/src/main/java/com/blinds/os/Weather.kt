@@ -282,18 +282,34 @@ private fun dayLabel(date: String, index: Int): String {
     }
 }
 
+private val SAMPLE_WEATHER = WeatherData(
+    temp = 72,
+    code = 1,
+    isDay = true,
+    hours = listOf(
+        HourW("2026-01-01T09:00", 68, 1), HourW("2026-01-01T10:00", 70, 1), HourW("2026-01-01T11:00", 72, 2),
+        HourW("2026-01-01T12:00", 74, 2), HourW("2026-01-01T13:00", 75, 3), HourW("2026-01-01T14:00", 75, 3),
+    ),
+    days = listOf(
+        DayW("2026-01-01", 76, 62, 1), DayW("2026-01-02", 74, 61, 2), DayW("2026-01-03", 71, 59, 61),
+        DayW("2026-01-04", 70, 58, 3), DayW("2026-01-05", 73, 60, 1), DayW("2026-01-06", 75, 62, 0),
+    ),
+)
+
 @Composable
-fun WeatherBody(spec: WidgetSpec, ui: UiState) {
+fun WeatherBody(spec: WidgetSpec, ui: UiState, preview: Boolean = false) {
     val s = LocalSettings.current
     val ink = LocalInk.current
     val ctx = LocalContext.current
-    val hasCity = s.weatherLat.isNotEmpty()
+    val hasCity = preview || s.weatherLat.isNotEmpty()
     val bare = spec.style == "bare"
 
-    LaunchedEffect(s.weatherLat, s.weatherLon, s.weatherUnit) {
-        while (true) {
-            Weather.refresh(s)
-            delay(30 * 60_000L)
+    if (!preview) {
+        LaunchedEffect(s.weatherLat, s.weatherLon, s.weatherUnit) {
+            while (true) {
+                Weather.refresh(s)
+                delay(30 * 60_000L)
+            }
         }
     }
 
@@ -314,7 +330,7 @@ fun WeatherBody(spec: WidgetSpec, ui: UiState) {
         return
     }
 
-    val d = Weather.data
+    val d = if (preview) SAMPLE_WEATHER else Weather.data
     if (d == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Txt(if (Weather.failed) "No connection" else "Loading…", color = ink.copy(alpha = 0.7f), size = 14.sp, shadow = bare)
@@ -330,7 +346,7 @@ fun WeatherBody(spec: WidgetSpec, ui: UiState) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = if (small) 12.dp else 20.dp, vertical = if (small) 10.dp else 14.dp)) {
         if (small) {
-            Txt(s.weatherName, color = ink, size = 13.sp, weight = FontWeight.SemiBold, maxLines = 1, shadow = bare)
+            Txt(if (preview) "Your city" else s.weatherName, color = ink, size = 13.sp, weight = FontWeight.SemiBold, maxLines = 1, shadow = bare)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 WeatherIcon(d.code, d.isDay, 36.dp)
                 Spacer(Modifier.width(6.dp))
@@ -341,7 +357,7 @@ fun WeatherBody(spec: WidgetSpec, ui: UiState) {
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Txt(s.weatherName, color = ink, size = 15.sp, weight = FontWeight.SemiBold, maxLines = 1, shadow = bare)
+                    Txt(if (preview) "Your city" else s.weatherName, color = ink, size = 15.sp, weight = FontWeight.SemiBold, maxLines = 1, shadow = bare)
                     Txt("${d.temp}$unitSign", color = ink, size = if (large) 64.sp else 48.sp, weight = FontWeight.Light, shadow = bare)
                     Txt(
                         conditionText(d.code) + if (today != null) "  H:${today.hi}$unitSign L:${today.lo}$unitSign" else "",
@@ -431,9 +447,11 @@ fun CityPicker(ui: UiState) {
                                     s.weatherKey = ""
                                     Weather.reset()
                                     if (ui.addWeatherAfterCity) {
-                                        val wid = s.addWidget("weather", "wide", "card", ui.firstIdOnPage)
-                                        ui.pendingPage = ui.currentPage
-                                        ui.pendingPin = wid
+                                        placeWidgetVariant(
+                                            s, ui,
+                                            ui.pendingVariant ?: WidgetVariant("Wide", "weather", "card", FULL_WIDTH, 2),
+                                        )
+                                        ui.pendingVariant = null
                                         ui.addWeatherAfterCity = false
                                     }
                                     ui.showCity = false

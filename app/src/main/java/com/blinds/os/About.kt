@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "27.0.1"
+    const val NAME = "27.1"
 }
 
 class PatchNote(
@@ -66,6 +66,22 @@ class PatchNote(
 )
 
 val PATCH_NOTES = listOf(
+    PatchNote(
+        version = "27.1",
+        title = "Widgets picker, animations, Notification Center",
+        date = "October 2026",
+        items = listOf(
+            "New widget picker with categories (Weather, Time, Battery, Date, Calendar) and live previews",
+            "New widgets: battery, date strip, next calendar event (asks for calendar permission), second city on the clock",
+            "Widget looks are edited in Customize > Widgets",
+            "Animation system: folders open and close with motion, items glide to their new spot, edit buttons slide in. Pick Smooth, Bouncy, Snappy or Off in Customize > Animations",
+            "Glass Notification Center: swipe down on the right half of the home screen (turn on in Customize > Notification badges)",
+            "Folders: drag an app out of an open folder, put folders in the dock, choose a folder look and size",
+            "Customize > Apps: rename any app or give it your own icon picture",
+            "10 new wallpapers",
+            "Fixes: Customize icon on the home screen, real widgets showing Can't load widget",
+        ),
+    ),
     PatchNote(
         version = "27.0.1",
         title = "Cleaner Customize, lock screen sync",

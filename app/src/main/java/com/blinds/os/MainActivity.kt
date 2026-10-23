@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         settings = LauncherSettings(getSharedPreferences("blinds_os", MODE_PRIVATE))
+        NotifCenter.collecting = settings.notifCenter
         model = AppModel(applicationContext, settings)
         model.refresh()
 
@@ -80,7 +81,9 @@ class MainActivity : ComponentActivity() {
                 c.isAppearanceLightNavigationBars = !dark
             }
 
+            val anim = rememberAnimSpec(settings.animStyle, settings.animSaver)
             CompositionLocalProvider(
+                LocalAnim provides anim,
                 LocalSettings provides settings,
                 LocalDark provides dark,
                 LocalInk provides ink,

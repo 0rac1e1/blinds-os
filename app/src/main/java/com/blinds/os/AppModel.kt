@@ -80,7 +80,7 @@ class AppModel(private val ctx: Context, private val settings: LauncherSettings)
         scope.launch(Dispatchers.Default) {
             ids.forEach { id ->
                 val app = byId[id] ?: return@forEach
-                val key = "${app.id}|$px|${settings.themedIcons}|${settings.accent}|${settings.iconPack}"
+                val key = "${app.id}|$px|${settings.themedIcons}|${settings.accent}|${settings.iconPack}|${settings.iconVer}"
                 IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, key, pack = settings.iconPack)
                 if (style != "default") {
                     if (style == "glass") IconCache.load(ctx, app, px, settings.themedIcons, settings.accent, "$key|bg", LAYER_BG, settings.iconPack)
@@ -161,14 +161,16 @@ class AppModel(private val ctx: Context, private val settings: LauncherSettings)
     private fun load(): List<AppEntry> {
         val pm = ctx.packageManager
         val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val names = settings.appNames
         val installed = pm.queryIntentActivities(query, 0).mapNotNull { ri ->
             val ai = ri.activityInfo ?: return@mapNotNull null
             if (ai.packageName == ctx.packageName) return@mapNotNull null
             val cn = ComponentName(ai.packageName, ai.name)
+            val appId = cn.flattenToShortString()
             AppEntry(
-                id = cn.flattenToShortString(),
+                id = appId,
                 pkg = ai.packageName,
-                label = ri.loadLabel(pm).toString(),
+                label = names[appId] ?: ri.loadLabel(pm).toString(),
                 component = cn,
                 category = ai.applicationInfo.category,
                 isSystem = (ai.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0,

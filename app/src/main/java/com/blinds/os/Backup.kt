@@ -37,6 +37,9 @@ object Backup {
         }
     }
 
+    private fun dropHosted(v: String): String =
+        v.split('\n').filterNot { it.startsWith("a:") }.joinToString("\n")
+
     fun restore(ctx: Context, uri: Uri): Boolean {
         return try {
             val input = ctx.contentResolver.openInputStream(uri) ?: return false
@@ -49,7 +52,13 @@ object Backup {
             val keys = items.keys()
             while (keys.hasNext()) {
                 val k = keys.next()
+                // real widgets from other apps are tied to this install, so they have to be added again
+                if (k == "awidgets") continue
                 val o = items.getJSONObject(k)
+                if (o.getString("t") == "s" && (k == "home" || k == "dock" || k == "grid")) {
+                    editor.putString(k, dropHosted(o.getString("v")))
+                    continue
+                }
                 when (o.getString("t")) {
                     "b" -> editor.putBoolean(k, o.getBoolean("v"))
                     "i" -> editor.putInt(k, o.getInt("v"))

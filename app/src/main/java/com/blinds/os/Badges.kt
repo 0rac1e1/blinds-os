@@ -27,6 +27,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 
+/** One notification as shown in the Notification Center. Lives in memory only. */
+class NoteItem(
+    val key: String,
+    val pkg: String,
+    val title: String,
+    val text: String,
+    val time: Long,
+    val open: android.app.PendingIntent?,
+)
+
+object NotifCenter {
+    val items = androidx.compose.runtime.mutableStateListOf<NoteItem>()
+    var collecting = false
+    var service: BadgeService? = null
+
+    fun dismiss(key: String) {
+        try { service?.cancelNotification(key) } catch (_: Exception) {}
+        items.removeAll { it.key == key }
+    }
+
+    fun dismissAll() {
+        val keys = items.map { it.key }
+        try { service?.cancelAllNotifications() } catch (_: Exception) {}
+        items.removeAll { it.key in keys }
+    }
+}
+
 /** How many notifications each app has right now. Only counts: message text is never read or stored. */
 object Badges {
     val counts = mutableStateMapOf<String, Int>()
@@ -59,12 +86,17 @@ class BadgeService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         Badges.connected = true
+        NotifCenter.service = this
         recompute()
     }
 
     override fun onListenerDisconnected() {
         Badges.connected = false
+        if (NotifCenter.service === this) NotifCenter.service = null
     }
+
+    /** Re-reads the active notifications (used when the Notification Center is switched on). */
+    fun refresh() = recompute()
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) = recompute()
 
@@ -77,14 +109,36 @@ class BadgeService : NotificationListenerService() {
             null
         } ?: return
         val map = HashMap<String, Int>()
+        val notes = ArrayList<NoteItem>()
         for (n in list) {
             if (n.packageName == packageName) continue
             val f = n.notification.flags
             if (f and Notification.FLAG_ONGOING_EVENT != 0) continue    // music players, downloads, calls
             if (f and Notification.FLAG_GROUP_SUMMARY != 0) continue    // the "3 new messages" header of a group
             map[n.packageName] = (map[n.packageName] ?: 0) + 1
+            // the text is only read when the person turned the Notification Center on, and never saved
+            if (NotifCenter.collecting) {
+                val ex = n.notification.extras
+                notes.add(
+                    NoteItem(
+                        key = n.key,
+                        pkg = n.packageName,
+                        title = ex?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "",
+                        text = ex?.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: "",
+                        time = n.postTime,
+                        open = n.notification.contentIntent,
+                    ),
+                )
+            }
         }
         Badges.update(map)
+        if (NotifCenter.collecting) {
+            notes.sortByDescending { it.time }
+            NotifCenter.items.clear()
+            NotifCenter.items.addAll(notes)
+        } else if (NotifCenter.items.isNotEmpty()) {
+            NotifCenter.items.clear()
+        }
     }
 }
 

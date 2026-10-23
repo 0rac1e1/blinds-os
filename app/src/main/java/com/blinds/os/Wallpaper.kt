@@ -93,6 +93,56 @@ val WALLPAPERS = listOf(
         listOf(Color(0xFFF7D1C4), Color(0xFFD99A8B), Color(0xFFFFE3D1), Color(0xFFC77D6A)),
     ),
     WallpaperSpec(
+        "nebula", "Nebula",
+        listOf(Color(0xFF080515), Color(0xFF2B0F54), Color(0xFF6A2C91)),
+        listOf(Color(0xFFFF4ECD), Color(0xFF6C5CE7), Color(0xFF00CEC9), Color(0xFFFD79A8)),
+    ),
+    WallpaperSpec(
+        "glacier", "Glacier",
+        listOf(Color(0xFF071E2C), Color(0xFF1B5E7A), Color(0xFF8ED1E8)),
+        listOf(Color(0xFFE0F7FF), Color(0xFF74C0FC), Color(0xFFA5D8FF), Color(0xFFBAF2E9)),
+    ),
+    WallpaperSpec(
+        "lagoon", "Lagoon",
+        listOf(Color(0xFF021F1D), Color(0xFF05665F), Color(0xFF2EC4B6)),
+        listOf(Color(0xFF9BF6FF), Color(0xFF00B4D8), Color(0xFFCAFFBF), Color(0xFF2EC4B6)),
+    ),
+    WallpaperSpec(
+        "candy", "Candy",
+        listOf(Color(0xFF3A1252), Color(0xFFC04BA6), Color(0xFFFF9CC8)),
+        listOf(Color(0xFFFFD1F0), Color(0xFF9B8CFF), Color(0xFFFFB3C6), Color(0xFF8FF0FF)),
+    ),
+    WallpaperSpec(
+        "desert", "Desert",
+        listOf(Color(0xFF2B1608), Color(0xFFB5651D), Color(0xFFF2B866)),
+        listOf(Color(0xFFFFE0A3), Color(0xFFE76F51), Color(0xFFF4A261), Color(0xFFFFF1C9)),
+    ),
+    WallpaperSpec(
+        "neon", "Neon",
+        listOf(Color(0xFF05010F), Color(0xFF16062E), Color(0xFF260A52)),
+        listOf(Color(0xFF39FF14), Color(0xFFFF00E5), Color(0xFF00E5FF), Color(0xFFFFE600)),
+    ),
+    WallpaperSpec(
+        "storm", "Storm",
+        listOf(Color(0xFF0D1117), Color(0xFF2B3A4A), Color(0xFF5C7A99)),
+        listOf(Color(0xFFB8D4F0), Color(0xFF6F8FAF), Color(0xFFE6EEF7), Color(0xFF445B73)),
+    ),
+    WallpaperSpec(
+        "moss", "Moss",
+        listOf(Color(0xFF0E1A0A), Color(0xFF3B5323), Color(0xFF8BA351)),
+        listOf(Color(0xFFD4E79E), Color(0xFF6B8E23), Color(0xFFB5C99A), Color(0xFFFFE8A3)),
+    ),
+    WallpaperSpec(
+        "cherry", "Cherry",
+        listOf(Color(0xFF260512), Color(0xFF8A1538), Color(0xFFE5486F)),
+        listOf(Color(0xFFFFB3C7), Color(0xFFFF6B8E), Color(0xFFC9184A), Color(0xFFFFE0E9)),
+    ),
+    WallpaperSpec(
+        "twilight", "Twilight",
+        listOf(Color(0xFF0B1026), Color(0xFF3C2A6B), Color(0xFFD1627A)),
+        listOf(Color(0xFFFFAFBD), Color(0xFF7F7FD5), Color(0xFF91EAE4), Color(0xFFFFC371)),
+    ),
+    WallpaperSpec(
         "slate", "Slate",
         listOf(Color(0xFF10151C), Color(0xFF2A3441), Color(0xFF4A5A6E)),
         listOf(Color(0xFF8DA2B8), Color(0xFF5E7186), Color(0xFFB8C7D6), Color(0xFF3F5063)),

@@ -9,6 +9,13 @@ import android.os.BatteryManager
 import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.runtime.key
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
@@ -93,6 +100,7 @@ class UiState {
         get() = CustomizeState.show
         set(v) { CustomizeState.show = v }
     var showSearch by mutableStateOf(false)
+    var showNotifs by mutableStateOf(false)
     var menuApp by mutableStateOf<AppEntry?>(null)
     var openCategory by mutableStateOf<String?>(null)
     var selectedId by mutableStateOf<String?>(null)
@@ -113,6 +121,8 @@ class UiState {
     var pendingPage = 0
     var currentPage = 0
     var showWidgetList by mutableStateOf(false)
+    var pendingVariant: WidgetVariant? = null
+    var relayout by mutableIntStateOf(0)
     var dragId by mutableStateOf<String?>(null)
     var dragX by mutableStateOf(0f)
     var dragY by mutableStateOf(0f)
@@ -135,6 +145,7 @@ class UiState {
         editing = false
         showSettings = false
         showSearch = false
+        showNotifs = false
         AboutState.show = false
         menuApp = null
         openCategory = null
@@ -263,6 +274,11 @@ fun HomeScreen(model: AppModel, ui: UiState) {
     val padPx = with(density) { 14.dp.toPx() }
     SideEffect { ui.currentPage = pager.currentPage }
 
+    // a widget was resized or removed from Customize: re-seat everything on the grid
+    LaunchedEffect(ui.relayout) {
+        if (ui.relayout > 0) s.commitPlacements(computePages())
+    }
+
     // ---- drag and drop ----
     val pagesNow by rememberUpdatedState(pages)
     val boxOrigin = remember { floatArrayOf(0f, 0f) }
@@ -277,6 +293,9 @@ fun HomeScreen(model: AppModel, ui: UiState) {
     class Hover(var id: String? = null, var since: Long = 0L)
 
     fun isLoose(id: String) = id.startsWith("w:") || id.startsWith("f:") || id.startsWith("a:")
+
+    /** Widgets can't live in the dock; apps and folders can. */
+    fun canDock(id: String) = !(id.startsWith("w:") || id.startsWith("a:"))
 
     /** The grid cell (page, column, row) the dragged item's top-left corner would land on. */
     fun targetCell(p: Offset, id: String): Triple<Int, Int, Int>? {
@@ -399,7 +418,12 @@ fun HomeScreen(model: AppModel, ui: UiState) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
                 // edit-mode buttons sit above the grid so they never cover the top row
-                if (ui.editing) {
+                val an = LocalAnim.current
+                AnimatedVisibility(
+                    visible = ui.editing,
+                    enter = fadeIn(an.fade()) + expandVertically(an.move()),
+                    exit = fadeOut(an.fade(160)) + shrinkVertically(an.fade(200)),
+                ) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -486,7 +510,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                         s.mergeIntoFolder(grabbed, mt)
                                         s.commitPlacements(computePages())
                                     } else if (dr != null && dr.contains(p)) {
-                                        if (!isLoose(grabbed)) {
+                                        if (canDock(grabbed)) {
                                             val hit = ui.cellAt(p)
                                             val inDock = hit != null && hit in s.dockIds && hit != grabbed
                                             if (inDock || grabbed in s.dockIds || s.dockIds.size < s.dockCount) {
@@ -505,14 +529,17 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                 }
                             }
                         }
-                        .pointerInput(s.swipeSearch, s.appLibrary, libraryIndex, pageCount) {
+                        .pointerInput(s.swipeSearch, s.notifCenter, s.appLibrary, libraryIndex, pageCount) {
                             var total = 0f
+                            var startX = 0f
                             detectVerticalDragGestures(
-                                onDragStart = { total = 0f },
+                                onDragStart = { total = 0f; startX = it.x },
                                 onDragEnd = {
                                     val onLibrary = libraryIndex >= 0 && pager.currentPage == libraryIndex
                                     if (!onLibrary) {
-                                        if (total > 140f && s.swipeSearch) {
+                                        if (total > 140f && s.notifCenter && startX > size.width / 2f) {
+                                            ui.showNotifs = true
+                                        } else if (total > 140f && s.swipeSearch) {
                                             ui.showSearch = true
                                         } else if (total < -140f && libraryIndex >= 0) {
                                             scope.launch { pager.animateScrollToPage(libraryIndex) }
@@ -605,9 +632,9 @@ fun HomeScreen(model: AppModel, ui: UiState) {
             FolderSheet(model = model, ui = ui)
             WidgetPicker(ui)
             AppWidgetPicker(ui)
-            WidgetEditor(ui)
             CityPicker(ui)
             if (ui.showSearch) Spotlight(model = model, ui = ui)
+            if (ui.showNotifs) NotificationCenter(model = model, ui = ui)
             ui.menuApp?.let { app -> AppMenu(app = app, model = model, ui = ui) }
             ui.openCategory?.let { cat -> CategorySheet(name = cat, model = model, ui = ui) }
             SettingsSheet(model = model, ui = ui)
@@ -631,15 +658,21 @@ private fun HomePage(
     BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
         val cellW = maxWidth / s.cols
         val cellH = maxHeight / s.rows
-        for (it in items) {
+        val an = LocalAnim.current
+        for (it in items) key(it.id) {
             val spec = specs[it.id]
             val app = byId[it.id]
             val folder = folders[it.id]
             val host = hosted[it.id]
+            // items glide to their new cell instead of jumping
+            val ax by animateDpAsState(cellW * it.col, an.move(), label = "cellX")
+            val ay by animateDpAsState(cellH * it.row, an.move(), label = "cellY")
+            val aw by animateDpAsState(cellW * it.w, an.move(), label = "cellW")
+            val ah by animateDpAsState(cellH * it.h, an.move(), label = "cellH")
             Box(
                 Modifier
-                    .offset(x = cellW * it.col, y = cellH * it.row)
-                    .size(cellW * it.w, cellH * it.h),
+                    .offset(x = ax, y = ay)
+                    .size(aw.coerceAtLeast(0.dp), ah.coerceAtLeast(0.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (spec != null) {
@@ -815,9 +848,19 @@ private fun Dock(dockIds: List<String>, byId: Map<String, AppEntry>, model: AppM
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val apps = dockIds.mapNotNull { byId[it] }
-            apps.forEach { app -> AppCell(app = app, model = model, ui = ui, labels = false, movable = true) }
-            if (apps.isEmpty()) {
+            var shown = 0
+            dockIds.forEach { did ->
+                val folder = if (did.startsWith("f:")) s.folder(did) else null
+                val app = byId[did]
+                if (folder != null) {
+                    shown++
+                    FolderCell(folder = folder, byId = byId, ui = ui, labels = false)
+                } else if (app != null) {
+                    shown++
+                    AppCell(app = app, model = model, ui = ui, labels = false, movable = true)
+                }
+            }
+            if (shown == 0) {
                 Txt("Long-press an app and choose Add to Dock", color = ink.copy(alpha = 0.6f), size = 13.sp)
             }
         }

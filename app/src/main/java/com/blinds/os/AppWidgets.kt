@@ -97,8 +97,16 @@ fun HostedWidgetItem(
                 }
             }
         } else {
+            // widgets from other apps lean on system theme attributes, so inflate them with a real Android theme
+            val themed = remember(ctx) {
+                android.view.ContextThemeWrapper(
+                    ctx,
+                    if (android.os.Build.VERSION.SDK_INT >= 29) android.R.style.Theme_DeviceDefault_DayNight
+                    else android.R.style.Theme_DeviceDefault,
+                )
+            }
             val view = remember(host.appWidgetId) {
-                awHost.createView(ctx, host.appWidgetId, info).also { v ->
+                awHost.createView(themed, host.appWidgetId, info).also { v ->
                     v.setOnLongClickListener {
                         ui.editing = true
                         true

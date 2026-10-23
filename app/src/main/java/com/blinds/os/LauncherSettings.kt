@@ -102,12 +102,38 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var wallpaperSpeed by pref("wallpaperSpeed", 1f)         // drift speed multiplier
     var pauseSaver by pref("pauseSaver", true)               // pause the animation in battery saver
 
+    // ---------- Animations ----------
+    var animStyle by pref("animStyle", "smooth")             // smooth | bouncy | snappy | off
+    var animSaver by pref("animSaver", true)                 // switch animations off in battery saver
+
+    var iconVer by pref("iconVer", 0, resets = false)         // bumped whenever a custom app icon changes
+    private var namesRaw by pref("appNames", "", resets = false)
+
+    /** Custom app names the person typed in Customize > Apps, by app id. */
+    val appNames: Map<String, String>
+        get() = namesRaw.split('\n').mapNotNull { line ->
+            val i = line.indexOf('|')
+            if (i <= 0) null else line.substring(0, i) to line.substring(i + 1)
+        }.toMap()
+
+    fun setAppName(id: String, name: String) {
+        val clean = name.replace('|', ' ').replace('\n', ' ').trim()
+        val m = appNames.toMutableMap()
+        if (clean.isEmpty()) m.remove(id) else m[id] = clean
+        namesRaw = m.entries.joinToString("\n") { "${it.key}|${it.value}" }
+    }
+
+    // ---------- Folders ----------
+    var folderStyle by pref("folderStyle", "glass")          // glass | clear | tinted | dark
+    var folderCols by pref("folderCols", 4)                  // apps per row in the open folder: 3 | 4 | 5
+
     // ---------- Theme ----------
     var theme by pref("theme", "system")                    // system | dark | light
     var accent by pref("accent", 0xFF0A84FF.toInt())
 
     // ---------- Behaviour ----------
     var badgeStyle by pref("badgeStyle", "number")           // number | dot | off
+    var notifCenter by pref("notifCenter", false)            // glass Notification Center (swipe down on the right half)
     var badgeColor by pref("badgeColor", 0xFFFF3B30.toInt())
     var haptics by pref("haptics", true)
     var swipeSearch by pref("swipeSearch", true)
@@ -260,6 +286,16 @@ class LauncherSettings(private val prefs: SharedPreferences) {
                 f.members.firstOrNull()?.let { inheritPin(f.id, it) }
             }
         }
+        val inDock = broken.filter { it.id in dockIds }
+        if (inDock.isNotEmpty()) {
+            val dock = dockIds.toMutableList()
+            for (f in inDock) {
+                val at = dock.indexOf(f.id)
+                dock.removeAt(at)
+                f.members.firstOrNull()?.let { if (it !in dock) dock.add(at.coerceAtMost(dock.size), it) }
+            }
+            setDock(dock)
+        }
         saveFolders(all.filter { it.members.size >= 2 })
         setHome(home)
     }
@@ -314,6 +350,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         f.members.forEachIndexed { i, m -> if (m !in home) home.add((at + i).coerceAtMost(home.size), m) }
         f.members.firstOrNull()?.let { inheritPin(id, it) }
         setHome(home)
+        if (id in dockIds) setDock(dockIds - id)
         saveFolders(folders.filter { it.id != id })
     }
 
@@ -466,8 +503,10 @@ data class WidgetSpec(
     val text: Int = 0,
     val cw: Int = 0,
     val ch: Int = 0,
+    /** Extra per-type setting (a clock's second city, as "TimeZoneId;Label"). */
+    val extra: String = "",
 ) {
-    fun pack() = "$id|$type|$size|$style|$frost|$tint|$corner|$text|$cw|$ch"
+    fun pack() = "$id|$type|$size|$style|$frost|$tint|$corner|$text|$cw|$ch|${extra.replace('|', ' ').replace('\n', ' ')}"
 
     /** Cells wide and tall. */
     fun span(cols: Int): Pair<Int, Int> = if (cw > 0 && ch > 0) cw.coerceAtMost(cols) to ch else when (size) {
@@ -488,6 +527,7 @@ data class WidgetSpec(
                 p.getOrNull(7)?.toIntOrNull() ?: 0,
                 p.getOrNull(8)?.toIntOrNull() ?: 0,
                 p.getOrNull(9)?.toIntOrNull() ?: 0,
+                p.getOrNull(10) ?: "",
             )
         }
     }

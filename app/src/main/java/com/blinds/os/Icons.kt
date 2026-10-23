@@ -84,6 +84,13 @@ object IconCache {
     private fun noLayer(): ImageBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).asImageBitmap()
 
     private fun render(ctx: Context, app: AppEntry, size: Int, themed: Boolean, accent: Int, layer: Int, pack: String): ImageBitmap {
+        // a picture the person chose in Customize > Apps wins over everything else
+        val custom = AppOverrides.iconFile(ctx, app.id)
+        if (custom.exists()) {
+            if (layer != LAYER_FULL) return noLayer()
+            val cb = android.graphics.BitmapFactory.decodeFile(custom.path)
+            if (cb != null) return Bitmap.createScaledBitmap(cb, size, size, true).asImageBitmap()
+        }
         if (pack.isNotEmpty()) {
             val pd = IconPacks.drawableFor(ctx, pack, app.component)
             if (pd != null) {
@@ -96,7 +103,12 @@ object IconCache {
         }
         val pm = ctx.packageManager
         val raw: Drawable = try {
-            pm.getActivityIcon(app.component)
+            // our own two entries load straight from our resources, so Android can never hand back the wrong icon
+            when {
+                app.isCustomize -> ctx.getDrawable(R.mipmap.ic_customize)
+                app.isAbout -> ctx.getDrawable(R.mipmap.ic_launcher)
+                else -> pm.getActivityIcon(app.component)
+            } ?: pm.defaultActivityIcon
         } catch (e: Exception) {
             pm.defaultActivityIcon
         }
@@ -246,7 +258,7 @@ fun AppIcon(app: AppEntry, size: Dp, modifier: Modifier = Modifier) {
     val themed = s.themedIcons
     val accent = s.accent
     val style = if (s.iconQuality == "off") "default" else s.iconStyle
-    val key = "${app.id}|$px|$themed|$accent|${s.iconPack}"
+    val key = "${app.id}|$px|$themed|$accent|${s.iconPack}|${s.iconVer}"
     val glassStyle = style != "default"
 
     val bmp by produceState<ImageBitmap?>(initialValue = IconCache.peek(key), key1 = key) {

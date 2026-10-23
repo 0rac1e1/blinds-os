@@ -4,6 +4,7 @@
     <!-- Used only to check GitHub for a newer Blinds OS release. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <!-- Lets the launcher see every app that has a launcher icon (Android 11+ package visibility). -->
     <queries>

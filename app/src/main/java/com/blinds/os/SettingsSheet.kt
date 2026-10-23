@@ -87,6 +87,9 @@ object CustomizeState {
 
     /** Which section is open, or null for the section list. */
     var section by mutableStateOf<String?>(null)
+
+    /** A widget to open first in the Widgets section (set by the Edit button on a widget). */
+    var focusWidget: String? = null
 }
 
 private class SectionInfo(val id: String, val title: String, val blurb: String)
@@ -96,6 +99,9 @@ private val SECTIONS = listOf(
     SectionInfo("icons", "App icons", "Shape, size, glass style, icon packs"),
     SectionInfo("glass", "Liquid glass", "Blur, frost, tint, light"),
     SectionInfo("home", "Home screen", "Grid size, dock, corners, App Library"),
+    SectionInfo("apps", "Apps", "Rename an app or give it its own icon picture"),
+    SectionInfo("anim", "Animations", "Style of motion, battery saver"),
+    SectionInfo("widgets", "Widgets", "Look of each widget: style, frost, colours, city"),
     SectionInfo("badges", "Notification badges", "Counts and dots on icons"),
     SectionInfo("look", "Appearance and behaviour", "Theme, accent, haptics, search"),
     SectionInfo("system", "System", "About, backup, default home app, reset"),
@@ -153,7 +159,7 @@ private fun SheetBody(model: AppModel, ui: UiState) {
             scope.launch {
                 val ok = withContext(Dispatchers.IO) { Backup.restore(ctx, uri) }
                 if (ok) {
-                    Toast.makeText(ctx, "Backup restored", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Backup restored. Add real widgets from other apps again.", Toast.LENGTH_LONG).show()
                     ctx.findActivity()?.recreate()
                 } else {
                     Toast.makeText(ctx, "That isn't a Blinds OS backup", Toast.LENGTH_SHORT).show()
@@ -322,8 +328,70 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     SliderRow("Corner radius", "${s.cornerRadius.roundToInt()}dp", s.cornerRadius, 12f..44f) { s.cornerRadius = it }
                     SwitchRow("App Library page", s.appLibrary) { s.appLibrary = it }
                 }
+                Group("Folders") {
+                    ChoiceRow(
+                        "Look",
+                        listOf("glass" to "Glass", "clear" to "Clear", "tinted" to "Tinted", "dark" to "Dark"),
+                        s.folderStyle,
+                    ) { s.folderStyle = it }
+                    ChoiceRow("Apps per row when open", listOf("3" to "3", "4" to "4", "5" to "5"), s.folderCols.toString()) { s.folderCols = it.toInt() }
+                }
+                }
+                "apps" -> {
+                    AppOverridesSection(model)
+                }
+                "anim" -> {
+                Group("Animations") {
+                    ChoiceRow(
+                        "Style",
+                        listOf("smooth" to "Smooth", "bouncy" to "Bouncy", "snappy" to "Snappy", "off" to "Off"),
+                        s.animStyle,
+                    ) { s.animStyle = it }
+                    SwitchRow("Turn off in battery saver", s.animSaver) { s.animSaver = it }
+                    Txt(
+                        "Controls folders opening and closing, items gliding into place, the edit buttons and the Notification Center. If Android's \"Remove animations\" is on, Blinds OS follows it.",
+                        size = 12.sp,
+                        color = ink.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                }
+                "widgets" -> {
+                    val list = s.widgets
+                    var openId by remember { mutableStateOf(CustomizeState.focusWidget) }
+                    if (list.isEmpty()) {
+                        Txt(
+                            "You have no widgets yet. Hold the home screen, tap + Widget, and pick one.",
+                            size = 14.sp,
+                            color = ink.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(top = 16.dp, start = 4.dp, end = 4.dp),
+                        )
+                    }
+                    list.forEach { w ->
+                        if (openId == w.id) {
+                            Group(widgetTitle(w, list)) {
+                                WidgetLookControls(w, ui)
+                                ActionRow("Close") { openId = null }
+                            }
+                        } else {
+                            SectionRow(widgetTitle(w, list), "Tap to edit") { openId = w.id }
+                        }
+                    }
                 }
                 "badges" -> {
+                Group("Notification Center") {
+                    SwitchRow("Glass Notification Center", s.notifCenter) {
+                        s.notifCenter = it
+                        NotifCenter.collecting = it
+                        NotifCenter.service?.refresh()
+                    }
+                    Txt(
+                        "Swipe down on the right half of the home screen to open it. Needs notification access. Titles and text are only held in memory while it's on, never saved. Swiping down on the left half still opens search.",
+                        size = 12.sp,
+                        color = ink.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 Group("Notification badges") {
                     ChoiceRow("Style", listOf("number" to "Number", "dot" to "Dot", "off" to "Off"), s.badgeStyle) { s.badgeStyle = it }
                     SwatchRow("Colour", BADGE_COLORS, s.badgeColor) { s.badgeColor = it }
@@ -332,7 +400,7 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     }
                     ActionRow("App info (restricted settings, battery)…") { openAppInfo(ctx) }
                     Txt(
-                        "Badges only count notifications per app. Blinds OS never reads or stores their text. If the access switch is greyed out, open App info, tap the three dots and choose Allow restricted settings. If badges stop updating, set Battery to Unrestricted there.",
+                        "Badges only count notifications per app and never read their text. If the access switch is greyed out, open App info, tap the three dots and choose Allow restricted settings. If badges stop updating, set Battery to Unrestricted there.",
                         size = 12.sp,
                         color = ink.copy(alpha = 0.6f),
                         modifier = Modifier.padding(bottom = 8.dp),
@@ -390,7 +458,7 @@ private val BADGE_COLORS = listOf(
     0xFFBF5AF2.toInt(), 0xFFFF375F.toInt(), 0xFF111111.toInt(),
 )
 
-private fun openNotificationAccess(ctx: Context) {
+internal fun openNotificationAccess(ctx: Context) {
     try {
         val i = Intent(
             if (Build.VERSION.SDK_INT >= 30) Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS
