@@ -148,7 +148,7 @@ fun LibraryPage(model: AppModel, ui: UiState) {
     val s = LocalSettings.current
     var query by remember { mutableStateOf("") }
     val hidden = s.hiddenIds.toSet()
-    val visible = model.apps.filter { it.id !in hidden }
+    val visible = remember(model.apps, hidden) { model.apps.filter { it.id !in hidden } }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
         Txt(
@@ -162,10 +162,12 @@ fun LibraryPage(model: AppModel, ui: UiState) {
         Spacer(Modifier.height(16.dp))
 
         if (query.isBlank()) {
-            val groups = visible
-                .groupBy { categoryName(it.category) }
-                .toList()
-                .sortedBy { CATEGORY_ORDER.indexOf(it.first) }
+            val groups = remember(visible) {
+                visible
+                    .groupBy { categoryName(it.category) }
+                    .toList()
+                    .sortedBy { CATEGORY_ORDER.indexOf(it.first) }
+            }
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -197,6 +199,7 @@ private fun CategoryCard(name: String, apps: List<AppEntry>, ui: UiState) {
                 .bouncy(onClick = { ui.openCategory = name }),
             shape = RoundedCornerShape(28.dp),
             strength = 0.9f,
+            cheap = true,
         ) {
             Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceEvenly) {
                 for (row in 0..1) {

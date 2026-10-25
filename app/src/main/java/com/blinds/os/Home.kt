@@ -639,6 +639,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
             ui.openCategory?.let { cat -> CategorySheet(name = cat, model = model, ui = ui) }
             SettingsSheet(model = model, ui = ui)
             BlindsAboutApp(model = model)
+            WhatsNew(ui)
         }
     }
 }

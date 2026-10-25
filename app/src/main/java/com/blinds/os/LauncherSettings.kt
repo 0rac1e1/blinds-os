@@ -102,6 +102,8 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var wallpaperSpeed by pref("wallpaperSpeed", 1f)         // drift speed multiplier
     var pauseSaver by pref("pauseSaver", true)               // pause the animation in battery saver
 
+    var glassClarity by pref("glassClarity", 0f)             // 0 = normal glass ... 1 = nearly see-through
+
     // ---------- Animations ----------
     var animStyle by pref("animStyle", "smooth")             // smooth | bouncy | snappy | off
     var animSaver by pref("animSaver", true)                 // switch animations off in battery saver
@@ -139,6 +141,7 @@ class LauncherSettings(private val prefs: SharedPreferences) {
     var swipeSearch by pref("swipeSearch", true)
 
     // ---------- Layout data (not touched by "reset appearance") ----------
+    var lastSeenVersion by pref("lastSeenVersion", "", resets = false)   // the version whose "What's new" she has dismissed
     var seeded by pref("seeded", false, resets = false)
     var dockChecked by pref("dockChecked", false, resets = false)
     var aboutPlaced by pref("aboutPlaced", false, resets = false)

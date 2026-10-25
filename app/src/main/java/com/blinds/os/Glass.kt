@@ -84,6 +84,7 @@ fun GlassSurface(
     strength: Float = 1f,
     tint: Color? = null,
     tintAlpha: Float? = null,
+    cheap: Boolean = false,
     content: @Composable BoxScope.() -> Unit = {},
 ) {
     val s = LocalSettings.current
@@ -92,11 +93,13 @@ fun GlassSurface(
     val density = LocalDensity.current
 
     var pos by remember { mutableStateOf(Offset.Zero) }
-    val blurRadius = max(s.glassBlur, 0.5f)
+    val clarity = s.glassClarity.coerceIn(0f, 1f)
+    val blurRadius = max(s.glassBlur * (1f - 0.85f * clarity), 0.5f)
     val marginPx = with(density) { (blurRadius * 2f + 8f).dp.roundToPx() }
     val tintColor = tint ?: Color(s.glassTintArgb)
     val baseAlpha = tintAlpha ?: ((if (dark) s.glassTint else s.glassTint * 1.9f + 0.1f) * strength)
-    val bodyAlpha = baseAlpha.coerceIn(0f, 0.92f)
+    // "cheap" panels skip the live blur and use a flat frosted look (many of them on one page would lag)
+    val bodyAlpha = (if (cheap) maxOf(baseAlpha, 0.28f) else baseAlpha * (1f - 0.92f * clarity)).coerceIn(0f, 0.92f)
     val edge = s.glassEdge
     val lightAngle = s.glassLight + (if (s.motionLight) (bd?.tilt?.x ?: 0f) * 28f else 0f)
 
@@ -116,7 +119,7 @@ fun GlassSurface(
             }
     ) {
         // 1. blurred copy of the wallpaper, shifted so it lines up with what is really behind this panel
-        if (bd != null) {
+        if (bd != null && !cheap && clarity < 0.98f) {
             Box(
                 Modifier
                     .matchParentSize()

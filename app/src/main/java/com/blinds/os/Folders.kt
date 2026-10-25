@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -124,7 +125,17 @@ fun FolderCell(folder: FolderSpec, byId: Map<String, AppEntry>, ui: UiState, lab
                 }
             }
         }
-        if (labels && s.showLabels) {
+        if (labels && editing) {
+            // while arranging, the name can be typed straight on the home screen
+            BasicTextField(
+                value = folder.name,
+                onValueChange = { s.renameFolder(folder.id, it) },
+                singleLine = true,
+                textStyle = TextStyle(color = ink, fontSize = 11.sp, textAlign = TextAlign.Center),
+                cursorBrush = SolidColor(Color(s.accent)),
+                modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp).widthIn(min = 40.dp, max = 90.dp),
+            )
+        } else if (labels && s.showLabels) {
             Txt(
                 text = folder.name,
                 color = ink,

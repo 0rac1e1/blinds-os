@@ -22,6 +22,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -35,6 +38,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -107,22 +111,32 @@ private val SECTIONS = listOf(
     SectionInfo("system", "System", "About, backup, default home app, reset"),
 )
 
+private val SECTION_WORDS = mapOf(
+    "wallpaper" to "wallpaper background live effect lock screen parallax photo drift speed fps old",
+    "icons" to "icon shape size style glass pack names labels themed squircle circle",
+    "glass" to "glass blur frost tint edge depth light transparent see-through clear",
+    "home" to "grid columns rows dock corner radius library folder look page",
+    "apps" to "rename name custom icon override picture app",
+    "anim" to "animation motion bouncy snappy smooth speed",
+    "widgets" to "widget clock weather battery calendar date city look",
+    "badges" to "notification center badge dot count swipe",
+    "look" to "theme dark light accent haptics vibration search swipe behaviour",
+    "system" to "backup restore reset default home app about update",
+)
+
 /** The built-in Customize app: a full-screen glass app inside the launcher, like the Blinds OS app. */
 @Composable
 fun SettingsSheet(model: AppModel, ui: UiState) {
-    if (!CustomizeState.show) return
-    BackHandler {
+    AppShell(CustomizeState.show) { CustomizeContent(model, ui) }
+}
+
+@Composable
+private fun CustomizeContent(model: AppModel, ui: UiState) {
+    BackHandler(enabled = CustomizeState.show) {
         if (CustomizeState.section != null) CustomizeState.section = null else CustomizeState.show = false
     }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.35f))
-            .pointerInput(Unit) { detectTapGestures(onTap = {}) }
-    ) {
-        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars).padding(12.dp)) {
-            SheetBody(model = model, ui = ui)
-        }
+    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
+        SheetBody(model = model, ui = ui)
     }
 }
 
@@ -168,11 +182,7 @@ private fun SheetBody(model: AppModel, ui: UiState) {
         }
     }
 
-    GlassSurface(
-        modifier = Modifier.fillMaxSize().swallowTaps(),
-        shape = RoundedCornerShape(32.dp),
-        strength = 1.5f,
-    ) {
+    run {
         Column(Modifier.fillMaxSize()) {
             Spacer(Modifier.height(8.dp))
             Row(
@@ -181,7 +191,13 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val open = SECTIONS.firstOrNull { it.id == CustomizeState.section }
-                Txt(open?.title ?: "Customize", size = 24.sp, weight = FontWeight.Bold)
+                Txt(
+                    open?.title ?: "Customize",
+                    size = 24.sp,
+                    weight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                )
                 if (open != null) {
                     GlassButton("Back", onClick = { CustomizeState.section = null }, accent = true)
                 } else {
@@ -196,8 +212,33 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     .padding(horizontal = 20.dp)
             ) {
                 if (CustomizeState.section == null) {
-                    SECTIONS.forEach { sec ->
+                    var query by remember { mutableStateOf("") }
+                    BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        singleLine = true,
+                        textStyle = TextStyle(color = ink, fontSize = 16.sp),
+                        cursorBrush = SolidColor(Color(s.accent)),
+                        decorationBox = { inner ->
+                            if (query.isEmpty()) Txt("Search settings…", color = ink.copy(alpha = 0.45f), size = 16.sp)
+                            inner()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 10.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ink.copy(alpha = 0.08f))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    )
+                    val q = query.trim().lowercase()
+                    val shownSections = if (q.isEmpty()) SECTIONS else SECTIONS.filter {
+                        (it.title + " " + it.blurb + " " + (SECTION_WORDS[it.id] ?: "")).lowercase().contains(q)
+                    }
+                    shownSections.forEach { sec ->
                         SectionRow(sec.title, sec.blurb) { CustomizeState.section = sec.id }
+                    }
+                    if (shownSections.isEmpty()) {
+                        Txt("Nothing matches \"$query\".", color = ink.copy(alpha = 0.6f), size = 14.sp, modifier = Modifier.padding(vertical = 16.dp))
                     }
                 } else when (CustomizeState.section) {
                 "wallpaper" -> {
@@ -310,6 +351,7 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 Group("Liquid glass") {
                     SliderRow("Blur", "${s.glassBlur.roundToInt()}", s.glassBlur, 0f..60f) { s.glassBlur = it }
                     SliderRow("Frost", pct(s.glassTint), s.glassTint, 0f..0.6f) { s.glassTint = it }
+                    SliderRow("See-through", pct(s.glassClarity), s.glassClarity, 0f..1f) { s.glassClarity = it }
                     SwatchRow("Tint", GLASS_TINTS, s.glassTintArgb) { s.glassTintArgb = it }
                     SliderRow("Edge light", pct(s.glassEdge), s.glassEdge, 0f..1f) { s.glassEdge = it }
                     SliderRow("Depth", pct(s.glassDepth), s.glassDepth, 0f..1f) { s.glassDepth = it }
@@ -695,16 +737,16 @@ fun ActionRow(label: String, destructive: Boolean = false, onClick: () -> Unit) 
 private fun WallpaperRow(selected: String, onSelect: (String) -> Unit) {
     val s = LocalSettings.current
     val ink = LocalInk.current
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        WALLPAPERS.forEach { wp ->
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+      WALLPAPERS.chunked(4).forEach { rowList ->
+       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        rowList.forEach { wp ->
             val on = wp.id == selected
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     Modifier
-                        .size(width = 62.dp, height = 100.dp)
+                        .fillMaxWidth()
+                        .aspectRatio(0.62f)
                         .bouncy(onClick = { onSelect(wp.id) }, pressedScale = 0.93f)
                         .then(if (on) Modifier.border(2.5.dp, Color(s.accent), RoundedCornerShape(16.dp)) else Modifier)
                         .padding(if (on) 3.dp else 0.dp)
@@ -731,8 +773,11 @@ private fun WallpaperRow(selected: String, onSelect: (String) -> Unit) {
                             )
                         }
                 )
-                Txt(wp.name, size = 12.sp, color = ink.copy(alpha = 0.7f), modifier = Modifier.padding(top = 6.dp))
+                Txt(wp.name, size = 11.sp, color = ink.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.padding(top = 5.dp))
             }
         }
+        repeat(4 - rowList.size) { Box(Modifier.weight(1f)) }
+       }
+      }
     }
 }

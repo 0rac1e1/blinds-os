@@ -157,7 +157,7 @@ fun WidgetPicker(ui: UiState) {
     if (!ui.showWidgetPicker) return
     val s = LocalSettings.current
     val ink = LocalInk.current
-    var open by remember { mutableStateOf<String?>("time") }
+    var open by remember { mutableStateOf<String?>(null) }
 
     Box(
         Modifier

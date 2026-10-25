@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "27.1"
+    const val NAME = "27.1.1"
 }
 
 class PatchNote(
@@ -66,6 +66,22 @@ class PatchNote(
 )
 
 val PATCH_NOTES = listOf(
+    PatchNote(
+        version = "27.1.1",
+        title = "Proper apps, wallpaper grid, smoother Library",
+        date = "October 2026",
+        items = listOf(
+            "Blinds OS and Customize are now solid full-screen apps that slide in and out",
+            "Wallpapers are shown in a grid so you see more at once",
+            "Liquid glass: new See-through slider for clearer glass",
+            "Customize has a search box, and the Back button no longer stretches",
+            "Folders can be renamed right on the home screen while arranging",
+            "The widget picker opens with every category closed",
+            "App Library opens and swipes faster",
+            "The Customize icon now uses the Blinds OS colours",
+            "This What's new card after every update",
+        ),
+    ),
     PatchNote(
         version = "27.1",
         title = "Widgets picker, animations, Notification Center",
@@ -346,8 +362,12 @@ fun BlindsLogo(size: androidx.compose.ui.unit.Dp) {
 
 @Composable
 fun BlindsAboutApp(model: AppModel) {
-    if (!AboutState.show) return
-    BackHandler { AboutState.show = false }
+    AppShell(AboutState.show) { AboutContent(model) }
+}
+
+@Composable
+private fun AboutContent(model: AppModel) {
+    BackHandler(enabled = AboutState.show) { AboutState.show = false }
 
     val ctx = LocalContext.current
     val ink = LocalInk.current
@@ -372,12 +392,7 @@ fun BlindsAboutApp(model: AppModel) {
         }
     }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
-            .pointerInput(Unit) { detectTapGestures(onTap = {}) }
-    ) {
+    Box(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
             contentPadding = PaddingValues(16.dp),
