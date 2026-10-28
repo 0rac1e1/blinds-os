@@ -106,6 +106,22 @@ fun HostedWidgetItem(
                 )
             }
             val view = remember(host.appWidgetId) {
+                // many widgets (clocks especially) pick their layout from the size they are given,
+                // so hand them a real size before they draw for the first time
+                try {
+                    val wDp = (cellW.value * host.cw.coerceAtMost(s.cols)).toInt().coerceAtLeast(40)
+                    val hDp = (cellH.value * host.ch).toInt().coerceAtLeast(40)
+                    val opts = Bundle().apply {
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, wDp)
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, wDp)
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, hDp)
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, hDp)
+                        putInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY, AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN)
+                    }
+                    AppWidgetManager.getInstance(ctx).updateAppWidgetOptions(host.appWidgetId, opts)
+                } catch (e: Exception) {
+                    // the widget will get its size from the layout pass instead
+                }
                 awHost.createView(themed, host.appWidgetId, info).also { v ->
                     v.setOnLongClickListener {
                         ui.editing = true

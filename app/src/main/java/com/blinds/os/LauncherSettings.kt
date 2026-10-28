@@ -125,6 +125,91 @@ class LauncherSettings(private val prefs: SharedPreferences) {
         namesRaw = m.entries.joinToString("\n") { "${it.key}|${it.value}" }
     }
 
+    // ---------- Gestures, locked apps, search, schedule, layouts (27.2) ----------
+    var gDtTop by pref("gDtTop", "none")                     // none | search | notifs | library | edit | customize | torch | app:<id>
+    var gDtMid by pref("gDtMid", "none")
+    var gDtBottom by pref("gDtBottom", "none")
+    var autoBackup by pref("autoBackup", true, resets = false)  // keep a copy inside the app, refreshed daily
+    var searchContacts by pref("searchContacts", false)
+    var searchSettings by pref("searchSettings", true)
+    var libraryView by pref("libraryView", "categories")     // categories | az
+    var schedFrom by pref("schedFrom", 19)                   // dark from this hour (theme = schedule)
+    var schedTo by pref("schedTo", 7)                        // light again from this hour
+    var nightWallpaper by pref("nightWallpaper", "")         // wallpaper id used after dark in schedule mode, "" = same
+    private var lockedRaw by pref("locked", "", resets = false)
+    private var recentRaw by pref("recents", "", resets = false)
+    private var layoutsRaw by pref("layouts", "", resets = false)
+
+    val lockedIds: Set<String> get() = lockedRaw.unpack().toSet()
+
+    fun toggleLock(id: String) {
+        val l = lockedIds
+        lockedRaw = (if (id in l) l - id else l + id).toList().pack()
+    }
+
+    val recentIds: List<String> get() = recentRaw.unpack()
+
+    fun noteLaunch(id: String) {
+        recentRaw = (listOf(id) + recentIds.filter { it != id }).take(8).pack()
+    }
+
+    /** True when the schedule says it is night right now. */
+    fun scheduledDark(hour: Int): Boolean =
+        if (schedFrom == schedTo) false
+        else if (schedFrom > schedTo) hour >= schedFrom || hour < schedTo
+        else hour in schedFrom until schedTo
+
+    /** Saved home screen layouts: name -> snapshot of the arrangement. */
+    val layoutNames: List<String>
+        get() = try {
+            val arr = org.json.JSONArray(if (layoutsRaw.isEmpty()) "[]" else layoutsRaw)
+            (0 until arr.length()).map { arr.getJSONObject(it).getString("name") }
+        } catch (e: Exception) { emptyList() }
+
+    fun saveLayout(name: String) {
+        val clean = name.trim().take(24).ifEmpty { "Layout" }
+        val arr = try { org.json.JSONArray(if (layoutsRaw.isEmpty()) "[]" else layoutsRaw) } catch (e: Exception) { org.json.JSONArray() }
+        val keep = org.json.JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            if (o.getString("name") != clean) keep.put(o)
+        }
+        keep.put(
+            org.json.JSONObject()
+                .put("name", clean)
+                .put("home", homeRaw).put("dock", dockRaw).put("hidden", hiddenRaw)
+                .put("widgets", widgetsRaw).put("folders", foldersRaw).put("pins", pinsRaw).put("hosted", hostedRaw)
+        )
+        layoutsRaw = keep.toString()
+    }
+
+    fun applyLayout(name: String) {
+        try {
+            val arr = org.json.JSONArray(layoutsRaw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                if (o.getString("name") == name) {
+                    homeRaw = o.optString("home"); dockRaw = o.optString("dock"); hiddenRaw = o.optString("hidden")
+                    widgetsRaw = o.optString("widgets"); foldersRaw = o.optString("folders")
+                    pinsRaw = o.optString("pins"); hostedRaw = o.optString("hosted")
+                    return
+                }
+            }
+        } catch (e: Exception) { /* keep the current layout */ }
+    }
+
+    fun deleteLayout(name: String) {
+        try {
+            val arr = org.json.JSONArray(layoutsRaw)
+            val keep = org.json.JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                if (o.getString("name") != name) keep.put(o)
+            }
+            layoutsRaw = keep.toString()
+        } catch (e: Exception) { /* nothing saved */ }
+    }
+
     // ---------- Folders ----------
     var folderStyle by pref("folderStyle", "glass")          // glass | clear | tinted | dark
     var folderCols by pref("folderCols", 4)                  // apps per row in the open folder: 3 | 4 | 5

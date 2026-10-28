@@ -45,7 +45,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -159,9 +162,18 @@ fun LibraryPage(model: AppModel, ui: UiState) {
             modifier = Modifier.padding(top = 10.dp, bottom = 12.dp),
         )
         SearchBar(query = query, onChange = { query = it }, hint = "Search apps")
-        Spacer(Modifier.height(16.dp))
-
+        Spacer(Modifier.height(10.dp))
         if (query.isBlank()) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GlassButton("Categories", onClick = { s.libraryView = "categories" }, accent = s.libraryView == "categories")
+                GlassButton("A–Z", onClick = { s.libraryView = "az" }, accent = s.libraryView == "az")
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+
+        if (query.isBlank() && s.libraryView == "az") {
+            AzList(visible)
+        } else if (query.isBlank()) {
             val groups = remember(visible) {
                 visible
                     .groupBy { categoryName(it.category) }
@@ -284,6 +296,7 @@ fun Spotlight(model: AppModel, ui: UiState) {
     val ctx = LocalContext.current
     val view = LocalView.current
     val ink = LocalInk.current
+    val s = LocalSettings.current
     var query by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     BackHandler { ui.showSearch = false }
@@ -298,6 +311,19 @@ fun Spotlight(model: AppModel, ui: UiState) {
                 .filter { it.label.contains(q, ignoreCase = true) }
                 .sortedBy { !it.label.startsWith(q, ignoreCase = true) }
                 .take(12)
+        }
+    }
+
+    val settingsHits = remember(q, s.searchSettings) {
+        if (!s.searchSettings || q.length < 2) emptyList() else SETTINGS_HITS.filter { it.label.contains(q, ignoreCase = true) }.take(3)
+    }
+    val contacts by produceState(emptyList<ContactHit>(), q, s.searchContacts) {
+        value = if (s.searchContacts && q.length >= 2) withContext(Dispatchers.IO) { contactHits(ctx, q) } else emptyList()
+    }
+    val recents = remember(q, model.apps) {
+        if (q.isNotEmpty()) emptyList() else {
+            val byId = model.apps.associateBy { it.id }
+            s.recentIds.mapNotNull { byId[it] }.take(6)
         }
     }
 
@@ -342,6 +368,18 @@ fun Spotlight(model: AppModel, ui: UiState) {
                 },
             )
             Spacer(Modifier.height(12.dp))
+            if (q.isEmpty() && recents.isNotEmpty()) {
+                GlassSurface(
+                    modifier = Modifier.fillMaxWidth().swallowTaps(),
+                    shape = RoundedCornerShape(26.dp),
+                    strength = 1.3f,
+                ) {
+                    Column(Modifier.padding(vertical = 8.dp)) {
+                        Txt("RECENT", size = 12.sp, color = ink.copy(alpha = 0.55f), weight = FontWeight.SemiBold, modifier = Modifier.padding(start = 18.dp, top = 6.dp, bottom = 2.dp))
+                        recents.forEach { app -> AppRow(app, onLaunched = { ui.showSearch = false }) }
+                    }
+                }
+            }
             if (q.isNotEmpty()) {
                 GlassSurface(
                     modifier = Modifier.fillMaxWidth().swallowTaps(),
@@ -351,6 +389,36 @@ fun Spotlight(model: AppModel, ui: UiState) {
                     LazyColumn(Modifier.heightIn(max = 480.dp).padding(vertical = 6.dp)) {
                         items(results, key = { it.id }) { app ->
                             AppRow(app, onLaunched = { ui.showSearch = false })
+                        }
+                        items(settingsHits, key = { "set:" + it.label }) { hit ->
+                            Txt(
+                                "Settings: ${hit.label}",
+                                size = 16.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .bouncy(onClick = {
+                                        try {
+                                            ctx.startActivity(Intent(hit.action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        } catch (e: Exception) { /* page not on this phone */ }
+                                        ui.showSearch = false
+                                    }, pressedScale = 0.97f)
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                            )
+                        }
+                        items(contacts, key = { "con:" + it.uri }) { c ->
+                            Txt(
+                                "Contact: ${c.name}",
+                                size = 16.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .bouncy(onClick = {
+                                        try {
+                                            ctx.startActivity(Intent(Intent.ACTION_VIEW, c.uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        } catch (e: Exception) { /* no contacts app */ }
+                                        ui.showSearch = false
+                                    }, pressedScale = 0.97f)
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                            )
                         }
                         item {
                             Txt(
@@ -475,6 +543,8 @@ fun AppMenu(app: AppEntry, model: AppModel, ui: UiState) {
                     }
                     MenuDivider()
                     MenuRow("Hide App") { s.hide(app.id); close() }
+                    MenuDivider()
+                    MenuRow(if (app.id in s.lockedIds) "Unlock App" else "Lock App") { s.toggleLock(app.id); close() }
                     MenuDivider()
                     MenuRow("App Info") {
                         close()

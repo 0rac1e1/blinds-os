@@ -14,6 +14,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.runtime.key
 import androidx.compose.animation.core.LinearEasing
@@ -101,6 +102,14 @@ class UiState {
         set(v) { CustomizeState.show = v }
     var showSearch by mutableStateOf(false)
     var showNotifs by mutableStateOf(false)
+    var popId by mutableStateOf<String?>(null)
+    var popStamp by mutableIntStateOf(0)
+
+    /** Makes [id] spring in (after it was added or dropped). */
+    fun pop(id: String) {
+        popId = id
+        popStamp += 1
+    }
     var menuApp by mutableStateOf<AppEntry?>(null)
     var openCategory by mutableStateOf<String?>(null)
     var selectedId by mutableStateOf<String?>(null)
@@ -236,11 +245,13 @@ fun HomeScreen(model: AppModel, ui: UiState) {
     val s = LocalSettings.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    val view = LocalView.current
 
     val hidden = s.hiddenIds.toSet()
     val byId = remember(model.apps) { model.apps.associateBy { it.id } }
     val byIdNow by rememberUpdatedState(byId)
-    val dockIds = s.dockIds.filter { it in byId && it !in hidden }.take(s.dockCount)
+    val dockIds = s.dockIds.filter { (it in byId || it.startsWith("f:")) && it !in hidden }.take(s.dockCount)
     val specs = s.widgets.associateBy { it.id }
     val folders = s.folders.associateBy { it.id }
     val hostedMap = s.hosted.associateBy { it.id }
@@ -506,6 +517,7 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                                     ui.mergeTarget = null
                                     ui.dropPreview = null
                                     val dr = ui.dockRect
+                                    ui.pop(grabbed)
                                     if (mt != null) {
                                         s.mergeIntoFolder(grabbed, mt)
                                         s.commitPlacements(computePages())
@@ -552,6 +564,15 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                         }
                         .pointerInput(Unit) {
                             detectTapGestures(
+                                onDoubleTap = { pos ->
+                                    if (!ui.editing) {
+                                        val third = (pos.y / size.height.toFloat() * 3f).toInt().coerceIn(0, 2)
+                                        val action = when (third) { 0 -> s.gDtTop; 1 -> s.gDtMid; else -> s.gDtBottom }
+                                        runGesture(action, ctx, view, model, ui) {
+                                            if (libraryIndex >= 0) scope.launch { pager.animateScrollToPage(libraryIndex) }
+                                        }
+                                    }
+                                },
                                 onLongPress = {
                                     if (s.haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     ui.editing = true
@@ -566,12 +587,15 @@ fun HomeScreen(model: AppModel, ui: UiState) {
                         }
                 ) {
                     HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+                        val slideOn = LocalAnim.current.enabled
                         Box(
                             Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    val o = ((pager.currentPage - page) + pager.currentPageOffsetFraction)
-                                        .absoluteValue.coerceIn(0f, 1f)
+                                    val signed = (pager.currentPage - page) + pager.currentPageOffsetFraction
+                                    // pages slide a little slower than your finger, which gives the swipe depth
+                                    if (slideOn) translationX = signed.coerceIn(-1f, 1f) * size.width * 0.22f
+                                    val o = signed.absoluteValue.coerceIn(0f, 1f)
                                     alpha = 1f - 0.55f * o
                                     scaleX = 1f - 0.08f * o
                                     scaleY = 1f - 0.08f * o
@@ -665,6 +689,14 @@ private fun HomePage(
             val app = byId[it.id]
             val folder = folders[it.id]
             val host = hosted[it.id]
+            val popTok = if (ui.popId == it.id) ui.popStamp else 0
+            val pop = remember(popTok) { Animatable(if (popTok != 0 && an.enabled) 0.8f else 1f) }
+            LaunchedEffect(popTok) {
+                if (popTok != 0) {
+                    pop.animateTo(1f, an.move())
+                    if (ui.popId == it.id) ui.popId = null
+                }
+            }
             // items glide to their new cell instead of jumping
             val ax by animateDpAsState(cellW * it.col, an.move(), label = "cellX")
             val ay by animateDpAsState(cellH * it.row, an.move(), label = "cellY")
@@ -673,7 +705,11 @@ private fun HomePage(
             Box(
                 Modifier
                     .offset(x = ax, y = ay)
-                    .size(aw.coerceAtLeast(0.dp), ah.coerceAtLeast(0.dp)),
+                    .size(aw.coerceAtLeast(0.dp), ah.coerceAtLeast(0.dp))
+                    .graphicsLayer {
+                        scaleX = pop.value
+                        scaleY = pop.value
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 if (spec != null) {
@@ -691,6 +727,15 @@ private fun HomePage(
 }
 
 fun launchApp(ctx: Context, view: View, app: AppEntry, bounds: IntRect?) {
+    val hub = Hub.settings
+    if (hub != null) {
+        // locked apps ask for the screen lock first (and stay open for 30 seconds afterwards)
+        if (app.id in hub.lockedIds && (Hub.unlockedUntil[app.id] ?: 0L) < System.currentTimeMillis()) {
+            Hub.lockPrompt?.invoke(app)
+            return
+        }
+        hub.noteLaunch(app.id)
+    }
     // the Blinds OS app lives inside the launcher itself
     if (app.isCustomize) {
         CustomizeState.show = true

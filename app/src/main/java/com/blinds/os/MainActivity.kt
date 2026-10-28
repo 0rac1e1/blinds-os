@@ -1,6 +1,9 @@
 package com.blinds.os
 
 import android.app.Activity
+import android.app.KeyguardManager
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
@@ -15,7 +18,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -28,6 +33,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var model: AppModel
     private val ui = UiState()
     private val resumed = mutableStateOf(false)
+
+    private var lockApp: AppEntry? = null
+    private val lockLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val app = lockApp
+        lockApp = null
+        if (app != null && r.resultCode == Activity.RESULT_OK) {
+            Hub.unlockedUntil[app.id] = System.currentTimeMillis() + 30_000L
+            launchApp(this, window.decorView, app, null)
+        }
+    }
 
     private lateinit var widgetHost: AppWidgetHost
     private var pendingAwId = -1
@@ -51,6 +66,17 @@ class MainActivity : ComponentActivity() {
 
         settings = LauncherSettings(getSharedPreferences("blinds_os", MODE_PRIVATE))
         NotifCenter.collecting = settings.notifCenter
+        Hub.settings = settings
+        Hub.lockPrompt = { app ->
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            val i = if (km.isDeviceSecure) km.createConfirmDeviceCredentialIntent("Unlock ${app.label}", null) else null
+            if (i == null) {
+                Toast.makeText(this, "Set a screen lock in Android settings to use locked apps", Toast.LENGTH_LONG).show()
+            } else {
+                lockApp = app
+                try { lockLauncher.launch(i) } catch (e: Exception) { lockApp = null }
+            }
+        }
         model = AppModel(applicationContext, settings)
         model.refresh()
 
@@ -66,9 +92,16 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(this, packageReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
 
         setContent {
+            val hour by produceState(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+                while (true) {
+                    kotlinx.coroutines.delay(60_000L)
+                    value = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                }
+            }
             val dark = when (settings.theme) {
                 "dark" -> true
                 "light" -> false
+                "schedule" -> settings.scheduledDark(hour)
                 else -> isSystemInDarkTheme()
             }
             val ink = if (dark) Color.White else Color(0xFF0F1115)
@@ -112,6 +145,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        Backup.auto(applicationContext)
         try {
             widgetHost.stopListening()
         } catch (e: Exception) {
@@ -166,6 +200,7 @@ class MainActivity : ComponentActivity() {
         val hid = settings.addHosted(id, info.provider.flattenToString(), cw, ch)
         ui.pendingPage = ui.currentPage
         ui.pendingPin = hid
+        ui.pop(hid)
         pendingAwId = -1
         pendingInfo = null
     }

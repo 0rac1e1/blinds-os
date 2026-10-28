@@ -2,6 +2,8 @@ package com.blinds.os
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
+import java.io.File
 import org.json.JSONObject
 
 /** Saves and restores every Blinds OS setting and the home screen layout as one small JSON file. */
@@ -9,32 +11,72 @@ object Backup {
     private const val APP = "BlindsOS"
     private const val PREFS = "blinds_os"
 
+    /** The whole backup as text: every setting, the layout, and any custom app icon pictures. */
+    private fun build(ctx: Context): String {
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val items = JSONObject()
+        for (entry in prefs.all.entries) {
+            val o = JSONObject()
+            when (val v = entry.value) {
+                is Boolean -> { o.put("t", "b"); o.put("v", v) }
+                is Int -> { o.put("t", "i"); o.put("v", v) }
+                is Long -> { o.put("t", "l"); o.put("v", v) }
+                is Float -> { o.put("t", "f"); o.put("v", v.toDouble()) }
+                is String -> { o.put("t", "s"); o.put("v", v) }
+                else -> continue
+            }
+            items.put(entry.key, o)
+        }
+        val icons = JSONObject()
+        try {
+            File(ctx.filesDir, "appicons").listFiles()?.forEach { f ->
+                icons.put(f.name, Base64.encodeToString(f.readBytes(), Base64.NO_WRAP))
+            }
+        } catch (e: Exception) {
+            // icons are optional
+        }
+        val root = JSONObject()
+        root.put("app", APP)
+        root.put("version", BlindsVersion.NAME)
+        root.put("prefs", items)
+        root.put("icons", icons)
+        return root.toString(2)
+    }
+
     fun export(ctx: Context, uri: Uri): Boolean {
         return try {
-            val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val items = JSONObject()
-            for (entry in prefs.all.entries) {
-                val o = JSONObject()
-                when (val v = entry.value) {
-                    is Boolean -> { o.put("t", "b"); o.put("v", v) }
-                    is Int -> { o.put("t", "i"); o.put("v", v) }
-                    is Long -> { o.put("t", "l"); o.put("v", v) }
-                    is Float -> { o.put("t", "f"); o.put("v", v.toDouble()) }
-                    is String -> { o.put("t", "s"); o.put("v", v) }
-                    else -> continue
-                }
-                items.put(entry.key, o)
-            }
-            val root = JSONObject()
-            root.put("app", APP)
-            root.put("version", BlindsVersion.NAME)
-            root.put("prefs", items)
             val out = ctx.contentResolver.openOutputStream(uri) ?: return false
-            out.use { it.write(root.toString(2).toByteArray(Charsets.UTF_8)) }
+            out.use { it.write(build(ctx).toByteArray(Charsets.UTF_8)) }
             true
         } catch (e: Exception) {
             false
         }
+    }
+
+    // ---- automatic copy kept inside the app, refreshed about once a day ----
+
+    fun autoFile(ctx: Context) = File(ctx.filesDir, "auto-backup.json")
+
+    fun auto(ctx: Context) {
+        try {
+            val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("autoBackup", true)) return
+            val now = System.currentTimeMillis()
+            if (now - prefs.getLong("autoBackupAt", 0L) < 20L * 3600_000L) return
+            autoFile(ctx).writeText(build(ctx))
+            prefs.edit().putLong("autoBackupAt", now).apply()
+        } catch (e: Exception) {
+            // best effort
+        }
+    }
+
+    fun autoTime(ctx: Context): Long =
+        if (autoFile(ctx).exists()) ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("autoBackupAt", 0L) else 0L
+
+    fun restoreAuto(ctx: Context): Boolean = try {
+        restoreText(ctx, autoFile(ctx).readText())
+    } catch (e: Exception) {
+        false
     }
 
     private fun dropHosted(v: String): String =
@@ -43,10 +85,27 @@ object Backup {
     fun restore(ctx: Context, uri: Uri): Boolean {
         return try {
             val input = ctx.contentResolver.openInputStream(uri) ?: return false
-            val text = input.use { String(it.readBytes(), Charsets.UTF_8) }
+            restoreText(ctx, input.use { String(it.readBytes(), Charsets.UTF_8) })
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun restoreText(ctx: Context, text: String): Boolean {
+        return try {
             val root = JSONObject(text)
             if (root.optString("app") != APP) return false
             val items = root.getJSONObject("prefs")
+            root.optJSONObject("icons")?.let { icons ->
+                val dir = File(ctx.filesDir, "appicons")
+                dir.mkdirs()
+                dir.listFiles()?.forEach { it.delete() }
+                val names = icons.keys()
+                while (names.hasNext()) {
+                    val n = names.next()
+                    File(dir, n.replace("/", "_")).writeBytes(Base64.decode(icons.getString(n), Base64.NO_WRAP))
+                }
+            }
             val editor = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             editor.clear()
             val keys = items.keys()

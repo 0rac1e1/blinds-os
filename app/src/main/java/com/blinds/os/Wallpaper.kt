@@ -118,7 +118,7 @@ val WALLPAPERS = listOf(
         listOf(Color(0xFFFFE0A3), Color(0xFFE76F51), Color(0xFFF4A261), Color(0xFFFFF1C9)),
     ),
     WallpaperSpec(
-        "neon", "Neon",
+        "electric", "Electric",
         listOf(Color(0xFF05010F), Color(0xFF16062E), Color(0xFF260A52)),
         listOf(Color(0xFF39FF14), Color(0xFFFF00E5), Color(0xFF00E5FF), Color(0xFFFFE600)),
     ),
@@ -202,7 +202,8 @@ fun DrawScope.drawWallpaper(bd: Backdrop, s: LauncherSettings, dark: Boolean, so
     val oy = bd.tilt.y * par
 
     val custom = if (s.useCustomWallpaper) bd.custom else null
-    val spec = if (s.wallpaper == "timeofday") timeOfDaySpec() else (WALLPAPERS.firstOrNull { it.id == s.wallpaper } ?: WALLPAPERS[0])
+    val wpId = if (s.theme == "schedule" && dark && s.nightWallpaper.isNotEmpty()) s.nightWallpaper else s.wallpaper
+    val spec = if (wpId == "timeofday") timeOfDaySpec() else (WALLPAPERS.firstOrNull { it.id == wpId } ?: WALLPAPERS[0])
     if (custom != null) {
         val scale = max(screen.width / custom.width, screen.height / custom.height) * 1.1f
         val dw = custom.width * scale

@@ -94,6 +94,22 @@ val WIDGET_CATEGORIES = listOf(
             WidgetVariant("Agenda", "calendar", "card", FULL_WIDTH, 4),
         ),
     ),
+    WidgetCategory(
+        "tools", "Music and tools", "What's playing, notes and quick toggles",
+        listOf(
+            WidgetVariant("Now playing", "music", "card", FULL_WIDTH, 1),
+            WidgetVariant("Notes (small)", "notes", "card", 2, 2),
+            WidgetVariant("Notes (wide)", "notes", "card", FULL_WIDTH, 2),
+            WidgetVariant("Quick toggles", "toggles", "card", FULL_WIDTH, 1),
+        ),
+    ),
+    WidgetCategory(
+        "stacks", "Stacks", "Several widgets in one spot, swipe up and down",
+        listOf(
+            WidgetVariant("Small stack (battery, date, weather)", "stack", "card", 2, 2, "battery:ring,date:strip,weather:card"),
+            WidgetVariant("Wide stack (clock, weather, calendar)", "stack", "card", FULL_WIDTH, 2, "clock:digital,weather:card,calendar:card"),
+        ),
+    ),
 )
 
 /** Adds a widget made from [v] to the home screen, on the page being viewed. */
@@ -102,6 +118,7 @@ fun placeWidgetVariant(s: LauncherSettings, ui: UiState, v: WidgetVariant) {
     s.widget(id)?.let { s.updateWidget(it.copy(cw = v.cw, ch = v.ch, extra = v.extra)) }
     ui.pendingPage = ui.currentPage
     ui.pendingPin = id
+    ui.pop(id)
 }
 
 /** Lays [content] out at its real size, then shrinks the picture so it fits a small preview. */
@@ -263,6 +280,10 @@ fun widgetTitle(spec: WidgetSpec, all: List<WidgetSpec>): String {
         "battery" -> "Battery"
         "date" -> "Date"
         "calendar" -> "Calendar"
+        "music" -> "Music"
+        "notes" -> "Notes"
+        "toggles" -> "Quick toggles"
+        "stack" -> "Stack"
         else -> "Widget"
     }
     val same = all.filter { it.type == spec.type }

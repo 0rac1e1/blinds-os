@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import android.Manifest
 import android.app.WallpaperManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -104,6 +105,7 @@ private val SECTIONS = listOf(
     SectionInfo("glass", "Liquid glass", "Blur, frost, tint, light"),
     SectionInfo("home", "Home screen", "Grid size, dock, corners, App Library"),
     SectionInfo("apps", "Apps", "Rename an app or give it its own icon picture"),
+    SectionInfo("gestures", "Gestures", "Double-tap actions on empty space"),
     SectionInfo("anim", "Animations", "Style of motion, battery saver"),
     SectionInfo("widgets", "Widgets", "Look of each widget: style, frost, colours, city"),
     SectionInfo("badges", "Notification badges", "Counts and dots on icons"),
@@ -118,6 +120,7 @@ private val SECTION_WORDS = mapOf(
     "home" to "grid columns rows dock corner radius library folder look page",
     "apps" to "rename name custom icon override picture app",
     "anim" to "animation motion bouncy snappy smooth speed",
+    "gestures" to "gesture double tap flashlight torch zone top middle bottom",
     "widgets" to "widget clock weather battery calendar date city look",
     "badges" to "notification center badge dot count swipe",
     "look" to "theme dark light accent haptics vibration search swipe behaviour",
@@ -158,6 +161,10 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 }
             }
         }
+    }
+
+    val contactsPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted: Boolean ->
+        s.searchContacts = granted
     }
 
     val backupSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
@@ -370,6 +377,49 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     SliderRow("Corner radius", "${s.cornerRadius.roundToInt()}dp", s.cornerRadius, 12f..44f) { s.cornerRadius = it }
                     SwitchRow("App Library page", s.appLibrary) { s.appLibrary = it }
                 }
+                Group("Saved layouts") {
+                    var layoutName by remember { mutableStateOf("") }
+                    BasicTextField(
+                        value = layoutName,
+                        onValueChange = { layoutName = it.take(24) },
+                        singleLine = true,
+                        textStyle = TextStyle(color = ink, fontSize = 16.sp),
+                        cursorBrush = SolidColor(Color(s.accent)),
+                        decorationBox = { inner ->
+                            if (layoutName.isEmpty()) Txt("Name, for example Work", color = ink.copy(alpha = 0.45f), size = 16.sp)
+                            inner()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(ink.copy(alpha = 0.08f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                    ActionRow("Save the current home screen as this layout") {
+                        s.saveLayout(layoutName)
+                        layoutName = ""
+                        Toast.makeText(ctx, "Layout saved", Toast.LENGTH_SHORT).show()
+                    }
+                    s.layoutNames.forEach { n ->
+                        Txt(n, size = 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                            Txt("Use", color = Color(s.accent), size = 16.sp, modifier = Modifier.bouncy(onClick = {
+                                s.applyLayout(n)
+                                model.refresh()
+                                ui.relayout += 1
+                                Toast.makeText(ctx, "Switched to $n", Toast.LENGTH_SHORT).show()
+                            }).padding(vertical = 8.dp))
+                            Txt("Delete", color = Color(0xFFFF453A), size = 16.sp, modifier = Modifier.bouncy(onClick = { s.deleteLayout(n) }).padding(vertical = 8.dp))
+                        }
+                    }
+                    Txt(
+                        "A layout remembers where apps, folders and widgets are. Real widgets from other apps are kept only while they still exist.",
+                        size = 12.sp,
+                        color = ink.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
                 Group("Folders") {
                     ChoiceRow(
                         "Look",
@@ -381,6 +431,9 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 }
                 "apps" -> {
                     AppOverridesSection(model)
+                }
+                "gestures" -> {
+                    GesturesSection(model)
                 }
                 "anim" -> {
                 Group("Animations") {
@@ -451,12 +504,38 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                 }
                 "look" -> {
                 Group("Appearance") {
-                    ChoiceRow("Theme", listOf("system" to "System", "dark" to "Dark", "light" to "Light"), s.theme) { s.theme = it }
+                    ChoiceRow(
+                        "Theme",
+                        listOf("system" to "System", "dark" to "Dark", "light" to "Light", "schedule" to "By time of day"),
+                        s.theme,
+                    ) { s.theme = it }
+                    if (s.theme == "schedule") {
+                        StepperRow("Dark from (hour, 0-23)", s.schedFrom, 0..23) { s.schedFrom = it }
+                        StepperRow("Light again at (hour)", s.schedTo, 0..23) { s.schedTo = it }
+                        ChoiceRow(
+                            "Wallpaper after dark",
+                            listOf("" to "Same as day") + WALLPAPERS.map { it.id to it.name },
+                            s.nightWallpaper,
+                        ) { s.nightWallpaper = it }
+                    }
                     SwatchRow("Accent", ACCENTS, s.accent) { s.accent = it }
                 }
                 Group("Behaviour") {
                     SwitchRow("Haptic feedback", s.haptics) { s.haptics = it }
                     SwitchRow("Swipe down for search", s.swipeSearch) { s.swipeSearch = it }
+                }
+                Group("Search") {
+                    SwitchRow("Find Android settings", s.searchSettings) { s.searchSettings = it }
+                    SwitchRow("Find contacts", s.searchContacts) {
+                        if (it && !hasContactsPermission(ctx)) contactsPerm.launch(Manifest.permission.READ_CONTACTS)
+                        else s.searchContacts = it
+                    }
+                    Txt(
+                        "Contact names are only looked up while you type in search and are never saved.",
+                        size = 12.sp,
+                        color = ink.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                 }
                 }
                 "system" -> {
@@ -469,6 +548,18 @@ private fun SheetBody(model: AppModel, ui: UiState) {
                     ActionRow("Set Blinds OS as the default home app") { openHomeSettings(ctx) }
                     ActionRow("Back up layout and settings…") { backupSaver.launch("blinds-os-backup.json") }
                     ActionRow("Restore from a backup…") { backupOpener.launch(arrayOf("*/*")) }
+                    SwitchRow("Keep an automatic backup inside the app", s.autoBackup) { s.autoBackup = it }
+                    if (Backup.autoTime(ctx) > 0L) {
+                        val whenText = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(Backup.autoTime(ctx)))
+                        ActionRow("Restore the automatic backup from $whenText") {
+                            if (Backup.restoreAuto(ctx)) {
+                                Toast.makeText(ctx, "Restored. Add real widgets from other apps again.", Toast.LENGTH_LONG).show()
+                                ctx.findActivity()?.recreate()
+                            } else {
+                                Toast.makeText(ctx, "Couldn't restore it", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                     if (s.hiddenIds.isNotEmpty()) {
                         ActionRow("Show ${s.hiddenIds.size} hidden app(s) again") { s.unhideAll() }
                     }

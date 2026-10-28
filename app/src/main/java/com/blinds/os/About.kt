@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.sp
  * so 27.0 is the first release of 2027.
  */
 object BlindsVersion {
-    const val NAME = "27.1.1"
+    const val NAME = "27.2"
 }
 
 class PatchNote(
@@ -66,6 +66,26 @@ class PatchNote(
 )
 
 val PATCH_NOTES = listOf(
+    PatchNote(
+        version = "27.2",
+        title = "Gestures, stacks, locked apps",
+        date = "October 2026",
+        items = listOf(
+            "Blinds OS app reworked: Check for updates stays pinned at the top, with drop-downs for Change log and Supported devices (minimum specs and a check of whether your phone runs it smoothly)",
+            "Gestures: double-tap the top, middle or bottom of an empty home screen to open an app, search, notifications, the flashlight and more (Customize > Gestures)",
+            "Widget stacks: swipe up and down to flip through several widgets in one spot",
+            "New widgets: Now playing (music controls), Notes, and Quick toggles (flashlight, Wi-Fi, Bluetooth, Display)",
+            "Locked apps: Lock App in the long-press menu asks for your screen lock before opening",
+            "App Library has an A–Z list with a letter strip, next to the categories view",
+            "Search also finds Android settings pages and (if you allow it) contacts, and shows recent apps",
+            "Theme by time of day: choose when it goes dark, and a different wallpaper after dark",
+            "Saved layouts: save your home screen as Work, Home and so on, and switch in one tap",
+            "Four new live wallpaper effects: flowing ribbons, sun and moon that follow the clock, bubbles, shooting stars",
+            "Page swipes have depth, and items spring in when you drop or add them",
+            "Backups now include your custom app icons, and an automatic backup is kept inside the app",
+            "Fixes: folders in the dock now show up; two wallpapers shared the name Neon; another try at widgets that said Can't load widget",
+        ),
+    ),
     PatchNote(
         version = "27.1.1",
         title = "Proper apps, wallpaper grid, smoother Library",
@@ -392,23 +412,58 @@ private fun AboutContent(model: AppModel) {
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+    var logOpen by remember { mutableStateOf(false) }
+    var devicesOpen by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 16.dp),
+    ) {
+        // pinned at the top: the title and the update check stay put while the rest scrolls
+        Row(
+            Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Txt("Blinds OS", size = 30.sp, weight = FontWeight.Bold, shadow = true)
-                    GlassButton("Done", onClick = { AboutState.show = false }, accent = true)
+            Txt("Blinds OS", size = 30.sp, weight = FontWeight.Bold, shadow = true)
+            GlassButton("Done", onClick = { AboutState.show = false }, accent = true)
+        }
+
+        GlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(26.dp), strength = 1f) {
+            Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                val u = AboutState.update
+                if (u is UpdateState.Available) {
+                    Txt("Update available", size = 18.sp, weight = FontWeight.Bold)
+                    Txt(
+                        "Blinds OS ${u.version}",
+                        color = ink.copy(alpha = 0.7f),
+                        size = 15.sp,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+                    )
+                    GlassButton("Download update", onClick = { openUrl(ctx, u.url) }, accent = true)
+                    Txt(
+                        "When it finishes, open the file and tap Update. Your settings are kept.",
+                        color = ink.copy(alpha = 0.55f),
+                        size = 12.sp,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                } else {
+                    val msg = when (u) {
+                        UpdateState.Checking -> "Checking for updates…"
+                        UpdateState.Latest -> "Blinds OS is up to date"
+                        UpdateState.Failed -> "Couldn't check for updates"
+                        else -> "Software update"
+                    }
+                    Txt(msg, size = 18.sp, weight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                    GlassButton("Check for updates", onClick = { checkUpdates() })
                 }
             }
+        }
 
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             item {
                 GlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(30.dp), strength = 1.2f) {
                     Column(
@@ -432,102 +487,53 @@ private fun AboutContent(model: AppModel) {
             }
 
             item {
-                GlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(26.dp), strength = 1f) {
-                    Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                        val u = AboutState.update
-                        if (u is UpdateState.Available) {
-                            Txt("Update available", size = 18.sp, weight = FontWeight.Bold)
-                            Txt(
-                                "Blinds OS ${u.version}",
-                                color = ink.copy(alpha = 0.7f),
-                                size = 15.sp,
-                                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
-                            )
-                            GlassButton("Download update", onClick = { openUrl(ctx, u.url) }, accent = true)
-                            Txt(
-                                "When it finishes, open the file and tap Update. Your settings are kept.",
-                                color = ink.copy(alpha = 0.55f),
-                                size = 12.sp,
-                                modifier = Modifier.padding(top = 10.dp),
-                            )
-                        } else {
-                            val msg = when (u) {
-                                UpdateState.Checking -> "Checking for updates…"
-                                UpdateState.Latest -> "Blinds OS is up to date"
-                                UpdateState.Failed -> "Couldn't check for updates"
-                                else -> "Software update"
+                DropSection(
+                    title = "Change log",
+                    subtitle = "What changed in every version",
+                    open = logOpen,
+                    onToggle = { logOpen = !logOpen },
+                ) {
+                    PATCH_NOTES.forEach { note ->
+                        Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Txt(note.version, size = 18.sp, weight = FontWeight.Bold)
+                                Spacer(Modifier.width(10.dp))
+                                if (note.version == BlindsVersion.NAME) {
+                                    Txt("CURRENT", color = Color(s.accent), size = 11.sp, weight = FontWeight.Bold, spacing = 1.sp)
+                                } else if (note.planned) {
+                                    Txt("UPCOMING", color = ink.copy(alpha = 0.6f), size = 11.sp, weight = FontWeight.Bold, spacing = 1.sp)
+                                }
                             }
-                            Txt(msg, size = 18.sp, weight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
-                            GlassButton("Check for updates", onClick = { checkUpdates() })
+                            Txt(note.title, size = 14.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
+                            Txt(note.date, color = ink.copy(alpha = 0.55f), size = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+                            note.items.forEach { line ->
+                                Txt(
+                                    "•  $line",
+                                    size = 14.sp,
+                                    color = ink.copy(alpha = 0.9f),
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
 
             item {
-                Txt(
-                    "Patch notes",
-                    size = 20.sp,
-                    weight = FontWeight.Bold,
-                    shadow = true,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp),
-                )
-            }
-
-            items(PATCH_NOTES, key = { it.version }) { note ->
-                GlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(26.dp), strength = 1f) {
-                    Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Txt(note.version, size = 20.sp, weight = FontWeight.Bold)
-                            Spacer(Modifier.width(10.dp))
-                            if (note.version == BlindsVersion.NAME) {
-                                Txt("CURRENT", color = Color(s.accent), size = 11.sp, weight = FontWeight.Bold, spacing = 1.sp)
-                            } else if (note.planned) {
-                                Txt("UPCOMING", color = ink.copy(alpha = 0.6f), size = 11.sp, weight = FontWeight.Bold, spacing = 1.sp)
-                            }
-                        }
-                        Txt(note.title, size = 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
-                        Txt(note.date, color = ink.copy(alpha = 0.55f), size = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
-                        note.items.forEach { line ->
-                            Txt(
-                                "•  $line",
-                                size = 14.sp,
-                                color = ink.copy(alpha = 0.9f),
-                                modifier = Modifier.padding(vertical = 2.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Txt(
-                    "About this device",
-                    size = 20.sp,
-                    weight = FontWeight.Bold,
-                    shadow = true,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp),
-                )
-            }
-
-            item {
-                GlassSurface(Modifier.fillMaxWidth(), RoundedCornerShape(26.dp), strength = 1f) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp)) {
-                        InfoRow("Blinds OS", BlindsVersion.NAME)
+                DropSection(
+                    title = "Supported devices",
+                    subtitle = "Minimum specs and whether this phone can run it smoothly",
+                    open = devicesOpen,
+                    onToggle = { devicesOpen = !devicesOpen },
+                ) {
+                    SupportedDevicesBody()
+                    Column(Modifier.padding(top = 12.dp)) {
                         InfoRow("Weather data", "Open-Meteo.com")
-                        InfoRow("Device", "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}")
-                        InfoRow("Android", "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                         InfoRow("Apps", model.apps.size.toString())
-                        InfoRow(
-                            "Glass blur",
-                            if (Build.VERSION.SDK_INT >= 31) "Supported" else "Needs Android 12+",
-                        )
                         InfoRow("Home app", if (isDefault) "Blinds OS" else "Another launcher")
                     }
                 }
             }
-
-            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }

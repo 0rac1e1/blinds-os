@@ -67,6 +67,10 @@ fun WidgetContent(spec: WidgetSpec, ui: UiState, preview: Boolean = false) {
         "battery" -> BatteryBody(spec, preview)
         "date" -> DateBody(spec)
         "calendar" -> CalendarBody(spec, preview)
+        "music" -> MusicBody(spec, preview)
+        "notes" -> NotesBody(spec, preview)
+        "toggles" -> TogglesBody(spec, preview)
+        "stack" -> StackBody(spec, ui, preview)
         else -> Box(Modifier.fillMaxSize())
     }
 }

@@ -24,6 +24,10 @@ val LIVE_EFFECTS = listOf(
     "waves" to "Waves",
     "lava" to "Lava lamp",
     "fireflies" to "Fireflies",
+    "ribbons" to "Flowing ribbons",
+    "sky" to "Sun and moon (follows the clock)",
+    "bubbles" to "Bubbles",
+    "meteors" to "Shooting stars",
 )
 
 /** Same input, same number between 0 and 1: gives every particle its own fixed random look. */
@@ -133,6 +137,68 @@ fun DrawScope.drawLive(kind: String, t: Float, screen: Size, tilt: Offset, color
                     r, Offset(x, y),
                 )
                 drawCircle(Color.White.copy(alpha = pulse), 1.4f * u, Offset(x, y))
+            }
+        }
+        "ribbons" -> {
+            for (i in 0 until 4) {
+                val c = pal[i % pal.size]
+                val path = Path()
+                var x = -20f * u
+                var first = true
+                val baseY = h * (0.25f + 0.15f * i)
+                while (x <= w + 20f * u) {
+                    val y = baseY + sin(x / (110f * u) + t * (0.35f + 0.1f * i) + i * 1.7f) * 60f * u +
+                        sin(x / (47f * u) - t * 0.5f + i) * 14f * u
+                    if (first) { path.moveTo(x, y); first = false } else path.lineTo(x, y)
+                    x += 14f * u
+                }
+                drawPath(path, c.copy(alpha = 0.30f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 34f * u, cap = StrokeCap.Round))
+                drawPath(path, Color.White.copy(alpha = 0.18f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 6f * u, cap = StrokeCap.Round))
+            }
+        }
+        "sky" -> {
+            // 0 = midnight ... 0.5 = noon, from the phone's own clock
+            val ms = (System.currentTimeMillis() + java.util.TimeZone.getDefault().rawOffset) % 86_400_000L
+            val day = ms / 86_400_000f
+            val sunUp = day in 0.25f..0.75f
+            val p = if (sunUp) (day - 0.25f) / 0.5f else ((day + 0.25f) % 1f) / 0.5f
+            val cx = w * (0.1f + 0.8f * p)
+            val cy = h * (0.55f - 0.4f * sin(p * PI.toFloat()))
+            val body = if (sunUp) Color(0xFFFFE08A) else Color(0xFFE9EEFF)
+            val r = 70f * u
+            drawCircle(Brush.radialGradient(listOf(body.copy(alpha = 0.55f), body.copy(alpha = 0f)), center = Offset(cx, cy), radius = r * 2.6f), r * 2.6f, Offset(cx, cy))
+            drawCircle(body.copy(alpha = 0.95f), r * 0.45f, Offset(cx, cy))
+            for (i in 0 until 5) {
+                val x = w * fract(0.1f * i + t * (0.004f + 0.002f * hash(i, 1)) + hash(i, 2))
+                val y = h * (0.12f + 0.5f * hash(i, 3))
+                val cw = (90f + 80f * hash(i, 4)) * u
+                drawOval(Color.White.copy(alpha = if (sunUp) 0.35f else 0.12f), Offset(x - cw / 2f, y), Size(cw, cw * 0.32f))
+            }
+        }
+        "bubbles" -> {
+            for (i in 0 until 26) {
+                val speed = 0.02f + 0.03f * hash(i, 1)
+                val y = h * (1.1f - fract(t * speed + hash(i, 2)) * 1.25f)
+                val x = w * hash(i, 3) + sin(t * 0.6f + i) * 14f * u
+                val r = (6f + 22f * hash(i, 4)) * u
+                drawCircle(Color.White.copy(alpha = 0.10f), r, Offset(x, y))
+                drawCircle(Color.White.copy(alpha = 0.35f), r, Offset(x, y), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.4f * u))
+            }
+        }
+        "meteors" -> {
+            for (i in 0 until 7) {
+                val period = 5f + 6f * hash(i, 1)
+                val f = fract(t / period + hash(i, 2))
+                if (f < 0.12f) {
+                    val k = f / 0.12f
+                    val sx = w * (0.2f + 0.8f * hash(i, 3))
+                    val sy = h * 0.5f * hash(i, 4)
+                    val len = 130f * u
+                    val x = sx - k * w * 0.45f
+                    val y = sy + k * h * 0.2f
+                    val tail = Offset(x + len, y - len * 0.45f)
+                    drawLine(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.9f * (1f - k)), Color.Transparent), start = Offset(x, y), end = tail), Offset(x, y), tail, strokeWidth = 2f * u, cap = StrokeCap.Round)
+                }
             }
         }
         "curtains" -> {
